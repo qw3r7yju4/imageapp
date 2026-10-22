@@ -7,9 +7,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,36 +36,67 @@ class MainActivity : ComponentActivity() {
 fun MainScreen(viewModel: ImageViewModel = viewModel()) {
     val context = LocalContext.current
     var hasPermission by remember { mutableStateOf(PermissionHelper.hasManageStoragePermission()) }
-    val images by viewModel.images.collectAsState()
+    val volumes by viewModel.volumes.collectAsState()
+    val allImages by viewModel.images.collectAsState()
+    val selectedStorageId by viewModel.selectedStorageId.collectAsState()
     val loading by viewModel.loading.collectAsState()
+
+    val filteredImages = remember(allImages, selectedStorageId) {
+        if (selectedStorageId == null) allImages
+        else allImages.filter { it.storageId == selectedStorageId }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
         hasPermission = PermissionHelper.hasManageStoragePermission()
-        if (hasPermission) viewModel.scanImages(context)
+        if (hasPermission) viewModel.scan(context)
     }
 
     LaunchedEffect(Unit) {
         if (hasPermission) {
-            viewModel.scanImages(context)
+            viewModel.scan(context)
         }
     }
 
-    Scaffold { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (!hasPermission) {
-                Button(onClick = {
-                    val intent = PermissionHelper.getManageStorageIntent()
-                    if (intent != null) permissionLauncher.launch(intent)
-                }) {
-                    Text("Grant File Access")
+    Scaffold(
+        topBar = {
+            Column {
+                if (!hasPermission) {
+                    Button(onClick = {
+                        val intent = PermissionHelper.getManageStorageIntent()
+                        if (intent != null) permissionLauncher.launch(intent)
+                    }, modifier = Modifier.padding(8.dp)) {
+                        Text("Grant File Access")
+                    }
+                } else {
+                    LazyRow(modifier = Modifier.padding(8.dp)) {
+                        item {
+                            FilterChip(
+                                selected = selectedStorageId == null,
+                                onClick = { viewModel.selectStorage(null) },
+                                label = { Text("All (${allImages.size})") }
+                            )
+                        }
+                        items(volumes) { volume ->
+                            val count = allImages.count { it.storageId == volume.id }
+                            FilterChip(
+                                selected = selectedStorageId == volume.id,
+                                onClick = { viewModel.selectStorage(volume.id) },
+                                label = { Text("${volume.name} ($count)") }
+                            )
+                        }
+                    }
                 }
-            } else if (loading) {
+            }
+        }
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (loading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
             } else {
                 LazyVerticalGrid(columns = GridCells.Fixed(3)) {
-                    items(images) { image ->
+                    items(filteredImages) { image ->
                         AsyncImage(
                             model = image.file,
                             contentDescription = image.name,
