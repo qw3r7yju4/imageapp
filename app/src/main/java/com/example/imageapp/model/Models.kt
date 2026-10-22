@@ -27,4 +27,7 @@ data class ImageItem(
     val storageId: String,
     val storageName: String,
     val storageType: StorageType
-)
+) {
+    val id: String get() = path
+}
+
