@@ -15,32 +15,63 @@ object StorageScanner {
 
     fun getStorageVolumes(context: Context): List<StorageVolumeInfo> {
         val volumes = mutableListOf<StorageVolumeInfo>()
-        val storageManager = context.getSystemService(Context.STORAGE_SERVICE) as StorageManager
+        val storageManager = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager ?: return volumes
 
         // 1. Primary Internal Shared Storage
-        val primaryRoot = Environment.getExternalStorageDirectory()
-        volumes.add(StorageVolumeInfo(
-            primaryRoot.canonicalPath, "Internal Storage", primaryRoot, StorageType.INTERNAL_SHARED
-        ))
+        try {
+            val primaryRoot = Environment.getExternalStorageDirectory()
+            if (primaryRoot != null && primaryRoot.exists()) {
+                volumes.add(
+                    StorageVolumeInfo(
+                        id = primaryRoot.canonicalPath,
+                        name = "Internal Storage",
+                        rootFile = primaryRoot,
+                        type = StorageType.INTERNAL_SHARED
+                    )
+                )
+            }
+        } catch (_: Exception) {
+        }
 
         // 2. App-Private Internal Storage
-        val appInternal = context.filesDir
-        volumes.add(StorageVolumeInfo(
-            appInternal.canonicalPath, "App Private", appInternal, StorageType.INTERNAL_APP_PRIVATE
-        ))
+        try {
+            val appInternal = context.filesDir
+            if (appInternal != null && appInternal.exists()) {
+                volumes.add(
+                    StorageVolumeInfo(
+                        id = appInternal.canonicalPath,
+                        name = "App Private",
+                        rootFile = appInternal,
+                        type = StorageType.INTERNAL_APP_PRIVATE
+                    )
+                )
+            }
+        } catch (_: Exception) {
+        }
 
         // 3. Attached Storage (API 24+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            storageManager.storageVolumes.forEach { volume ->
-                val root = volume.directory
-                if (root != null && root.path != primaryRoot.path) {
-                    volumes.add(StorageVolumeInfo(
-                        root.canonicalPath, 
-                        volume.getDescription(context) ?: "External Storage", 
-                        root, 
-                        StorageType.EXTERNAL_ATTACHED
-                    ))
+            try {
+                val primaryPath = try { Environment.getExternalStorageDirectory()?.canonicalPath } catch (_: Exception) { null }
+                storageManager.storageVolumes.forEach { volume ->
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            val root = volume.directory
+                            if (root != null && (primaryPath == null || root.canonicalPath != primaryPath)) {
+                                volumes.add(
+                                    StorageVolumeInfo(
+                                        id = root.canonicalPath,
+                                        name = volume.getDescription(context) ?: "External Storage",
+                                        rootFile = root,
+                                        type = StorageType.EXTERNAL_ATTACHED
+                                    )
+                                )
+                            }
+                        }
+                    } catch (_: Exception) {
+                    }
                 }
+            } catch (_: Exception) {
             }
         }
         
@@ -68,26 +99,29 @@ object StorageScanner {
         // Skip noisy system folders
         if (directory.name.startsWith(".") || directory.name == "Android" || directory.name == ".thumbnails") return
 
-        val files = directory.listFiles() ?: return
+        val files = try { directory.listFiles() } catch (e: Exception) { null } ?: return
         for (file in files) {
             if (file.isDirectory) {
                 scanDirectory(file, volume, images, visited)
             } else {
                 val extension = file.extension.lowercase()
                 if (imageExtensions.contains(extension)) {
-                    images.add(ImageItem(
-                        file = file,
-                        name = file.name,
-                        path = file.absolutePath,
-                        folderName = directory.name,
-                        sizeBytes = file.length(),
-                        lastModified = file.lastModified(),
-                        storageId = volume.id,
-                        storageName = volume.name,
-                        storageType = volume.type
-                    ))
+                    images.add(
+                        ImageItem(
+                            file = file,
+                            name = file.name,
+                            path = file.absolutePath,
+                            folderName = directory.name,
+                            sizeBytes = file.length(),
+                            lastModified = file.lastModified(),
+                            storageId = volume.id,
+                            storageName = volume.name,
+                            storageType = volume.type
+                        )
+                    )
                 }
             }
         }
     }
 }
+
