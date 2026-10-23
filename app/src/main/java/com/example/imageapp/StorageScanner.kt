@@ -12,6 +12,8 @@ import kotlinx.coroutines.withContext
 object StorageScanner {
     
     private val imageExtensions = listOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif", "dng", "avif")
+    val videoExtensions = listOf("mp4", "mkv", "mov", "avi", "webm", "3gp", "m4v", "ts")
+    val audioExtensions = listOf("mp3", "wav", "flac", "aac", "m4a", "ogg", "opus", "wma")
 
     fun getStorageVolumes(context: Context): List<StorageVolumeInfo> {
         val volumes = mutableListOf<StorageVolumeInfo>()
@@ -78,50 +80,184 @@ object StorageScanner {
         return volumes
     }
 
-    suspend fun scanAllImages(context: Context, volumes: List<StorageVolumeInfo>): List<ImageItem> = withContext(Dispatchers.IO) {
-        val images = mutableListOf<ImageItem>()
+    suspend fun scanMedia(
+        context: Context,
+        volumes: List<StorageVolumeInfo>,
+        category: MediaCategory,
+        showHiddenFiles: Boolean = false
+    ): List<FileItem> = withContext(Dispatchers.IO) {
+        val mediaItems = mutableListOf<FileItem>()
         val visited = mutableSetOf<String>()
 
         for (volume in volumes) {
-            scanDirectory(volume.rootFile, volume, images, visited)
+            scanDirectoryForMedia(volume.rootFile, volume, category, showHiddenFiles, mediaItems, visited)
         }
-        
-        images.sortedByDescending { it.lastModified }
+        mediaItems.sortedByDescending { it.lastModified }
     }
 
-    private fun scanDirectory(directory: File, volume: StorageVolumeInfo, images: MutableList<ImageItem>, visited: MutableSet<String>) {
+    suspend fun scanAllImages(context: Context, volumes: List<StorageVolumeInfo>): List<ImageItem> = withContext(Dispatchers.IO) {
+        val media = scanMedia(context, volumes, MediaCategory.PICTURES, false)
+        media.map { ImageItem.fromFileItem(it) }
+    }
+
+    private fun scanDirectoryForMedia(
+        directory: File,
+        volume: StorageVolumeInfo,
+        category: MediaCategory,
+        showHiddenFiles: Boolean,
+        results: MutableList<FileItem>,
+        visited: MutableSet<String>
+    ) {
         if (!directory.exists() || !directory.isDirectory) return
-        
+
         val canonical = try { directory.canonicalPath } catch (e: Exception) { directory.path }
         if (visited.contains(canonical)) return
         visited.add(canonical)
 
-        // Skip noisy system folders
-        if (directory.name.startsWith(".") || directory.name == "Android" || directory.name == ".thumbnails") return
+        if (!showHiddenFiles && (directory.name.startsWith(".") || directory.name == "Android" || directory.name == ".thumbnails")) {
+            return
+        }
 
         val files = try { directory.listFiles() } catch (e: Exception) { null } ?: return
         for (file in files) {
             if (file.isDirectory) {
-                scanDirectory(file, volume, images, visited)
+                scanDirectoryForMedia(file, volume, category, showHiddenFiles, results, visited)
             } else {
-                val extension = file.extension.lowercase()
-                if (imageExtensions.contains(extension)) {
-                    images.add(
-                        ImageItem(
+                if (!showHiddenFiles && file.name.startsWith(".")) continue
+                val ext = file.extension.lowercase()
+                val mediaType = when {
+                    imageExtensions.contains(ext) -> MediaType.IMAGE
+                    videoExtensions.contains(ext) -> MediaType.VIDEO
+                    audioExtensions.contains(ext) -> MediaType.AUDIO
+                    else -> MediaType.OTHER
+                }
+
+                val matches = when (category) {
+                    MediaCategory.PICTURES -> mediaType == MediaType.IMAGE
+                    MediaCategory.VIDEOS -> mediaType == MediaType.VIDEO
+                    MediaCategory.AUDIO -> mediaType == MediaType.AUDIO
+                    MediaCategory.ALL -> mediaType != MediaType.OTHER
+                }
+
+                if (matches) {
+                    results.add(
+                        FileItem(
                             file = file,
                             name = file.name,
                             path = file.absolutePath,
-                            folderName = directory.name,
+                            isDirectory = false,
                             sizeBytes = file.length(),
                             lastModified = file.lastModified(),
                             storageId = volume.id,
                             storageName = volume.name,
-                            storageType = volume.type
+                            storageType = volume.type,
+                            mediaType = mediaType,
+                            mimeType = getMimeType(file, mediaType)
                         )
                     )
                 }
             }
         }
     }
+
+    suspend fun listFilesInDirectory(
+        directory: File,
+        volumeInfo: StorageVolumeInfo?,
+        showHiddenFiles: Boolean
+    ): List<FileItem> = withContext(Dispatchers.IO) {
+        if (!directory.exists() || !directory.isDirectory) return@withContext emptyList()
+
+        val files = try { directory.listFiles() } catch (e: Exception) { null } ?: return@withContext emptyList()
+        val defaultStorageId = volumeInfo?.id ?: directory.absolutePath
+        val defaultStorageName = volumeInfo?.name ?: "Storage"
+        val defaultStorageType = volumeInfo?.type ?: StorageType.INTERNAL_SHARED
+
+        val items = files
+            .filter { showHiddenFiles || !it.name.startsWith(".") }
+            .map { file ->
+                val ext = file.extension.lowercase()
+                val mediaType = when {
+                    file.isDirectory -> MediaType.OTHER
+                    imageExtensions.contains(ext) -> MediaType.IMAGE
+                    videoExtensions.contains(ext) -> MediaType.VIDEO
+                    audioExtensions.contains(ext) -> MediaType.AUDIO
+                    else -> MediaType.OTHER
+                }
+                FileItem(
+                    file = file,
+                    name = file.name,
+                    path = file.absolutePath,
+                    isDirectory = file.isDirectory,
+                    sizeBytes = if (file.isDirectory) 0L else file.length(),
+                    lastModified = file.lastModified(),
+                    storageId = defaultStorageId,
+                    storageName = defaultStorageName,
+                    storageType = defaultStorageType,
+                    mediaType = mediaType,
+                    mimeType = getMimeType(file, mediaType)
+                )
+            }
+
+        items.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase(java.util.Locale.getDefault()) }))
+    }
+
+    fun getMimeType(file: File, mediaType: MediaType): String {
+        val ext = file.extension.lowercase()
+        return when (mediaType) {
+            MediaType.IMAGE -> when (ext) {
+                "png" -> "image/png"
+                "gif" -> "image/gif"
+                "webp" -> "image/webp"
+                "bmp" -> "image/bmp"
+                "heic", "heif" -> "image/heic"
+                else -> "image/jpeg"
+            }
+            MediaType.VIDEO -> when (ext) {
+                "mp4" -> "video/mp4"
+                "mkv" -> "video/x-matroska"
+                "webm" -> "video/webm"
+                "3gp" -> "video/3gpp"
+                else -> "video/*"
+            }
+            MediaType.AUDIO -> when (ext) {
+                "mp3" -> "audio/mpeg"
+                "wav" -> "audio/wav"
+                "flac" -> "audio/flac"
+                "ogg", "opus" -> "audio/ogg"
+                "aac" -> "audio/aac"
+                "m4a" -> "audio/mp4"
+                else -> "audio/*"
+            }
+            MediaType.OTHER -> when (ext) {
+                "zip" -> "application/zip"
+                "pdf" -> "application/pdf"
+                "txt" -> "text/plain"
+                "apk" -> "application/vnd.android.package-archive"
+                else -> "*/*"
+            }
+        }
+    }
+    fun formatDuration(durationMs: Long): String {
+        val totalSec = durationMs / 1000
+        val min = totalSec / 60
+        val sec = totalSec % 60
+        return if (min >= 60) {
+            val hours = min / 60
+            val remMin = min % 60
+            String.format(java.util.Locale.US, "%d:%02d:%02d", hours, remMin, sec)
+        } else {
+            String.format(java.util.Locale.US, "%02d:%02d", min, sec)
+        }
+    }
+
+    fun formatFileSize(bytes: Long): String {
+        return when {
+            bytes >= 1024 * 1024 * 1024 -> String.format(java.util.Locale.US, "%.2f GB", bytes.toDouble() / (1024 * 1024 * 1024))
+            bytes >= 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f MB", bytes.toDouble() / (1024 * 1024))
+            bytes >= 1024 -> String.format(java.util.Locale.US, "%.1f KB", bytes.toDouble() / 1024)
+            else -> "$bytes B"
+        }
+    }
+
 }
 

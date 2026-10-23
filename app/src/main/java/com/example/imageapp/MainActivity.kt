@@ -2,7 +2,9 @@ package com.example.imageapp
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -10,27 +12,28 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,6 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -51,7 +55,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.example.imageapp.model.ImageItem
+import com.example.imageapp.model.*
+import java.io.File
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -72,6 +77,7 @@ class MainActivity : ComponentActivity() {
 }
 
 
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(viewModel: ImageViewModel = viewModel()) {
@@ -79,24 +85,46 @@ fun MainScreen(viewModel: ImageViewModel = viewModel()) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
 
-    var hasPermission by remember {
-        mutableStateOf(PermissionHelper.hasManageStoragePermission())
-    }
+    var hasPermission by remember { mutableStateOf(PermissionHelper.hasManageStoragePermission()) }
+    val appMode by viewModel.appMode.collectAsStateWithLifecycle()
+    val mediaCategory by viewModel.mediaCategory.collectAsStateWithLifecycle()
     val volumes by viewModel.volumes.collectAsStateWithLifecycle()
-    val allImages by viewModel.images.collectAsStateWithLifecycle()
+    val mediaItems by viewModel.mediaItems.collectAsStateWithLifecycle()
+    val currentDirectory by viewModel.currentDirectory.collectAsStateWithLifecycle()
+    val directoryFiles by viewModel.directoryFiles.collectAsStateWithLifecycle()
+    val showHiddenFiles by viewModel.showHiddenFiles.collectAsStateWithLifecycle()
     val selectedStorageId by viewModel.selectedStorageId.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val selectedItemPaths by viewModel.selectedItemPaths.collectAsStateWithLifecycle()
+    val clipboard by viewModel.clipboard.collectAsStateWithLifecycle()
+    val isZipping by viewModel.isZipping.collectAsStateWithLifecycle()
+    val zipProgress by viewModel.zipProgress.collectAsStateWithLifecycle()
+    val transferState by P2PTransferManager.transferState.collectAsStateWithLifecycle()
 
     var showMainMenu by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
-    var selectedImageForViewer by remember { mutableStateOf<ImageItem?>(null) }
-    var exifTargetImage by remember { mutableStateOf<ImageItem?>(null) }
-    var deleteTargetImage by remember { mutableStateOf<ImageItem?>(null) }
-    var contextMenuImage by remember { mutableStateOf<ImageItem?>(null) }
+    var showShareDialog by remember { mutableStateOf(false) }
+    var showZipDestinationDialog by remember { mutableStateOf(false) }
+    var showMoveToDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
-    val filteredImages = remember(allImages, selectedStorageId) {
-        if (selectedStorageId == null) allImages
-        else allImages.filter { it.storageId == selectedStorageId }
+    var selectedImageForViewer by remember { mutableStateOf<ImageItem?>(null) }
+    var selectedVideoForPlayer by remember { mutableStateOf<FileItem?>(null) }
+    var selectedAudioForPlayer by remember { mutableStateOf<FileItem?>(null) }
+    var exifTargetImage by remember { mutableStateOf<ImageItem?>(null) }
+    var contextMenuFile by remember { mutableStateOf<FileItem?>(null) }
+
+    // Resolve currently selected FileItem objects
+    val currentVisibleItems = remember(appMode, mediaItems, directoryFiles, selectedStorageId) {
+        if (appMode == AppMode.ALL_FILES) directoryFiles
+        else {
+            if (selectedStorageId == null) mediaItems
+            else mediaItems.filter { it.storageId == selectedStorageId }
+        }
+    }
+
+    val selectedFileItems = remember(selectedItemPaths, currentVisibleItems) {
+        currentVisibleItems.filter { selectedItemPaths.contains(it.path) }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -104,8 +132,18 @@ fun MainScreen(viewModel: ImageViewModel = viewModel()) {
     ) {
         val granted = PermissionHelper.hasManageStoragePermission()
         hasPermission = granted
-        if (granted) {
-            viewModel.scan(context)
+        if (granted) viewModel.scan(context)
+    }
+
+    val sharingPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        // Callback after sharing permissions requested
+    }
+
+    fun requestSharingPermissionsIfNeeded() {
+        if (!PermissionHelper.hasSharingPermissions(context)) {
+            sharingPermissionLauncher.launch(PermissionHelper.getRequiredSharingPermissions())
         }
     }
 
@@ -113,283 +151,293 @@ fun MainScreen(viewModel: ImageViewModel = viewModel()) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 val granted = PermissionHelper.hasManageStoragePermission()
-                if (granted != hasPermission) {
-                    hasPermission = granted
-                }
-                if (granted && volumes.isEmpty()) {
-                    viewModel.scan(context)
-                }
+                if (granted != hasPermission) hasPermission = granted
+                if (granted && volumes.isEmpty()) viewModel.scan(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(hasPermission) {
-        if (hasPermission && volumes.isEmpty()) {
-            viewModel.scan(context)
+        if (hasPermission && volumes.isEmpty()) viewModel.scan(context)
+    }
+
+    BackHandler(enabled = appMode != AppMode.INITIAL_PROMPT || selectedItemPaths.isNotEmpty()) {
+        if (selectedItemPaths.isNotEmpty()) {
+            viewModel.clearSelection()
+        } else if (appMode == AppMode.ALL_FILES && viewModel.navigateUp()) {
+            // Navigated up one folder
+        } else {
+            viewModel.setAppMode(AppMode.INITIAL_PROMPT)
         }
     }
 
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "ImageApp",
-                        fontWeight = FontWeight.Bold
-                    )
+            LightBlueTopBar(
+                appMode = appMode,
+                mediaCategory = mediaCategory,
+                currentDirectory = currentDirectory,
+                selectedCount = selectedItemPaths.size,
+                hasClipboardItems = clipboard.items.isNotEmpty(),
+                showHiddenFiles = showHiddenFiles,
+                onClearSelection = { viewModel.clearSelection() },
+                onBackToHome = { viewModel.setAppMode(AppMode.INITIAL_PROMPT) },
+                onCopy = { viewModel.copySelected(selectedFileItems) },
+                onCut = { viewModel.cutSelected(selectedFileItems) },
+                onPaste = {
+                    if (appMode == AppMode.ALL_FILES) {
+                        coroutineScope.launch {
+                            val ok = viewModel.paste(currentDirectory, context)
+                            Toast.makeText(context, if (ok) "Pasted successfully" else "Failed to paste", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        showMoveToDialog = true
+                    }
                 },
-                actions = {
-                    if (hasPermission) {
-                        IconButton(onClick = { viewModel.scan(context) }) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Refresh"
-                            )
-                        }
+                onMoveTo = { showMoveToDialog = true },
+                onDelete = { showDeleteConfirmDialog = true },
+                onShare = {
+                    requestSharingPermissionsIfNeeded()
+                    showShareDialog = true
+                },
+                onSelectTransport = { transport ->
+                    requestSharingPermissionsIfNeeded()
+                    val toShare = if (selectedFileItems.isNotEmpty()) selectedFileItems else currentVisibleItems
+                    if (toShare.isNotEmpty()) {
+                        P2PTransferManager.startSendSession(context, toShare, transport)
+                    } else {
+                        P2PTransferManager.startReceiveSession(context, transport)
                     }
-                    Box {
-                        IconButton(onClick = { showMainMenu = true }) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "More options"
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showMainMenu,
-                            onDismissRequest = { showMainMenu = false }
-                        ) {
-                            if (hasPermission) {
-                                DropdownMenuItem(
-                                    text = { Text("Refresh") },
-                                    leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
-                                    onClick = {
-                                        showMainMenu = false
-                                        viewModel.scan(context)
-                                    }
-                                )
-                            }
-                            DropdownMenuItem(
-                                text = { Text("Settings") },
-                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                                onClick = {
-                                    showMainMenu = false
-                                    showSettingsDialog = true
-                                }
-                            )
-                        }
-                    }
-                }
+                },
+                onToggleHiddenFiles = { viewModel.toggleShowHiddenFiles(context) },
+                onSwitchMode = {
+                    viewModel.setAppMode(if (appMode == AppMode.ALL_FILES) AppMode.MEDIA else AppMode.ALL_FILES)
+                    viewModel.refresh(context)
+                },
+                onRefresh = { viewModel.refresh(context) },
+                onOpenSettings = { showSettingsDialog = true }
             )
+        },
+        bottomBar = {
+            AnimatedVisibility(
+                visible = selectedItemPaths.isNotEmpty(),
+                enter = slideInVertically(initialOffsetY = { it }),
+                exit = slideOutVertically(targetOffsetY = { it })
+            ) {
+                MultiSelectBottomBar(
+                    selectedCount = selectedItemPaths.size,
+                    totalCount = currentVisibleItems.size,
+                    onSelectAll = { viewModel.selectAll(currentVisibleItems) },
+                    onClearSelection = { viewModel.clearSelection() },
+                    onZipAndSave = { showZipDestinationDialog = true }
+                )
+            }
         }
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            if (!hasPermission) {
-                PermissionRequestScreen(
-                    onGrantClick = {
-                        val intent = PermissionHelper.getManageStorageIntent(context)
-                        permissionLauncher.launch(intent)
-                    }
-                )
-            } else {
-                if (volumes.isNotEmpty()) {
-                    LazyRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        item {
-                            FilterChip(
-                                selected = selectedStorageId == null,
-                                onClick = { viewModel.selectStorage(null) },
-                                label = { Text("All (${allImages.size})") }
-                            )
+            when {
+                !hasPermission -> {
+                    PermissionRequestScreen(
+                        onGrantClick = {
+                            val intent = PermissionHelper.getManageStorageIntent(context)
+                            permissionLauncher.launch(intent)
                         }
-                        items(volumes) { volume ->
-                            val count = allImages.count { it.storageId == volume.id }
-                            FilterChip(
-                                selected = selectedStorageId == volume.id,
-                                onClick = { viewModel.selectStorage(volume.id) },
-                                label = { Text("${volume.name} ($count)") }
-                            )
-                        }
-                    }
+                    )
                 }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    when {
-                        loading -> {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(24.dp)
-                            ) {
-                                CircularProgressIndicator()
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    text = "Scanning storage for images...",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                appMode == AppMode.INITIAL_PROMPT -> {
+                    ModeSelectionScreen(
+                        onSelectMedia = {
+                            viewModel.setAppMode(AppMode.MEDIA)
+                            viewModel.scan(context)
+                        },
+                        onSelectAllFiles = {
+                            viewModel.setAppMode(AppMode.ALL_FILES)
+                            viewModel.loadDirectoryFiles(Environment.getExternalStorageDirectory() ?: File("/storage/emulated/0"))
                         }
-                        filteredImages.isEmpty() -> {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(32.dp)
-                            ) {
-                                Text(
-                                    text = "No images found",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "No compatible image files were detected in this storage location.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Button(onClick = { viewModel.scan(context) }) {
-                                    Text("Scan Again")
+                    )
+                }
+                appMode == AppMode.MEDIA -> {
+                    MediaBrowserView(
+                        category = mediaCategory,
+                        items = currentVisibleItems,
+                        volumes = volumes,
+                        selectedStorageId = selectedStorageId,
+                        selectedPaths = selectedItemPaths,
+                        loading = loading,
+                        onSelectCategory = { cat -> viewModel.setMediaCategory(cat, context) },
+                        onSelectStorage = { id -> viewModel.selectStorage(id) },
+                        onItemClick = { item ->
+                            if (selectedItemPaths.isNotEmpty()) {
+                                viewModel.toggleSelection(item.path)
+                            } else {
+                                when (item.mediaType) {
+                                    MediaType.IMAGE -> selectedImageForViewer = ImageItem.fromFileItem(item)
+                                    MediaType.VIDEO -> selectedVideoForPlayer = item
+                                    MediaType.AUDIO -> selectedAudioForPlayer = item
+                                    else -> openFileWithIntent(context, item.file)
                                 }
                             }
-                        }
-                        else -> {
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(3),
-                                contentPadding = PaddingValues(4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(filteredImages, key = { it.path }) { image ->
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(1f)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .combinedClickable(
-                                                onClick = {
-                                                    selectedImageForViewer = image
-                                                },
-                                                onLongClick = {
-                                                    contextMenuImage = image
-                                                }
-                                            )
-                                    ) {
-                                        AsyncImage(
-                                            model = image.file,
-                                            contentDescription = image.name,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    }
+                        },
+                        onItemLongClick = { item -> viewModel.toggleSelection(item.path) },
+                        onScanAgain = { viewModel.scan(context) }
+                    )
+                }
+                appMode == AppMode.ALL_FILES -> {
+                    AllFilesBrowserView(
+                        currentDirectory = currentDirectory,
+                        items = directoryFiles,
+                        volumes = volumes,
+                        selectedPaths = selectedItemPaths,
+                        loading = loading,
+                        onFolderClick = { folder ->
+                            if (selectedItemPaths.isNotEmpty()) {
+                                viewModel.toggleSelection(folder.path)
+                            } else {
+                                viewModel.navigateTo(folder.file)
+                            }
+                        },
+                        onFileClick = { item ->
+                            if (selectedItemPaths.isNotEmpty()) {
+                                viewModel.toggleSelection(item.path)
+                            } else {
+                                when (item.mediaType) {
+                                    MediaType.IMAGE -> selectedImageForViewer = ImageItem.fromFileItem(item)
+                                    MediaType.VIDEO -> selectedVideoForPlayer = item
+                                    MediaType.AUDIO -> selectedAudioForPlayer = item
+                                    else -> openFileWithIntent(context, item.file)
                                 }
                             }
-                        }
-                    }
+                        },
+                        onItemLongClick = { item -> viewModel.toggleSelection(item.path) },
+                        onNavigateUp = { viewModel.navigateUp() },
+                        onFolderCreated = { newDir -> viewModel.navigateTo(newDir) },
+                        onRefresh = { viewModel.refresh(context) }
+                    )
                 }
             }
         }
     }
 
-    // Long press context menu for selected grid photo
-    if (contextMenuImage != null) {
-        val target = contextMenuImage!!
+    if (showDeleteConfirmDialog) {
         AlertDialog(
-            onDismissRequest = { contextMenuImage = null },
-            title = {
-                Text(
-                    text = target.name,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(
-                        onClick = {
-                            contextMenuImage = null
-                            exifTargetImage = target
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Info, contentDescription = null)
-                            Spacer(Modifier.width(12.dp))
-                            Text("Read EXIF Data", style = MaterialTheme.typography.bodyLarge)
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Delete Items") },
+            text = { Text("Are you sure you want to permanently delete ${selectedFileItems.size} selected item(s)?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirmDialog = false
+                        coroutineScope.launch {
+                            val ok = viewModel.deleteSelected(selectedFileItems, context)
+                            Toast.makeText(context, if (ok) "Deleted successfully" else "Failed to delete", Toast.LENGTH_SHORT).show()
                         }
-                    }
-                    TextButton(
-                        onClick = {
-                            val imgToShare = target
-                            contextMenuImage = null
-                            shareImageFile(context, imgToShare)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null)
-                            Spacer(Modifier.width(12.dp))
-                            Text("Share", style = MaterialTheme.typography.bodyLarge)
-                        }
-                    }
-                    TextButton(
-                        onClick = {
-                            contextMenuImage = null
-                            deleteTargetImage = target
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                "Delete",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
                 }
             },
-            confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { contextMenuImage = null }) {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
                     Text("Cancel")
                 }
             }
         )
+    }
+
+    if (showZipDestinationDialog) {
+        StorageFolderBrowserDialog(
+            volumes = volumes,
+            initialDirectory = currentDirectory,
+            title = "Zip & Save Items",
+            confirmButtonText = "Place .zip Here",
+            showZipNameField = true,
+            onDismiss = { showZipDestinationDialog = false },
+            onConfirm = { folder, zipName ->
+                showZipDestinationDialog = false
+                val name = zipName ?: "archive.zip"
+                viewModel.zipSelected(selectedFileItems, folder, name, context) { success ->
+                    Toast.makeText(context, if (success) "Created $name" else "Zip failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    if (showMoveToDialog) {
+        StorageFolderBrowserDialog(
+            volumes = volumes,
+            initialDirectory = currentDirectory,
+            title = "Move Items To...",
+            confirmButtonText = "Move Here",
+            showZipNameField = false,
+            onDismiss = { showMoveToDialog = false },
+            onConfirm = { folder, _ ->
+                showMoveToDialog = false
+                coroutineScope.launch {
+                    val ok = if (selectedFileItems.isNotEmpty()) viewModel.moveTo(selectedFileItems, folder, context)
+                             else viewModel.paste(folder, context)
+                    Toast.makeText(context, if (ok) "Moved successfully" else "Failed to move", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    if (showShareDialog) {
+        val toShare = if (selectedFileItems.isNotEmpty()) selectedFileItems else currentVisibleItems
+        ShareOptionsDialog(
+            itemsToShare = toShare,
+            onDismiss = { showShareDialog = false },
+            onStartP2PShare = { transport ->
+                P2PTransferManager.startSendSession(context, toShare, transport)
+            },
+            onSystemShare = {
+                shareMultipleFiles(context, toShare)
+            }
+        )
+    }
+
+    if (transferState.status != TransferStatus.IDLE) {
+        ActiveTransferDialog(
+            onDismiss = { P2PTransferManager.resetState() }
+        )
+    }
+
+    if (selectedVideoForPlayer != null) {
+        VideoPlayerDialog(
+            fileItem = selectedVideoForPlayer!!,
+            onDismiss = { selectedVideoForPlayer = null },
+            onShare = { item -> shareMultipleFiles(context, listOf(item)) }
+        )
+    }
+
+    if (selectedAudioForPlayer != null) {
+        AudioPlayerDialog(
+            fileItem = selectedAudioForPlayer!!,
+            onDismiss = { selectedAudioForPlayer = null },
+            onShare = { item -> shareMultipleFiles(context, listOf(item)) }
+        )
+    }
+
+    if (isZipping) {
+        Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
+            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 6.dp) {
+                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(16.dp))
+                    Text("Creating .zip archive...", fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(progress = { zipProgress }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+        }
     }
 
     // Full screen photo viewer
@@ -398,7 +446,12 @@ fun MainScreen(viewModel: ImageViewModel = viewModel()) {
             image = selectedImageForViewer!!,
             onClose = { selectedImageForViewer = null },
             onReadExif = { img -> exifTargetImage = img },
-            onDelete = { img -> deleteTargetImage = img },
+            onDelete = { img ->
+                coroutineScope.launch {
+                    viewModel.deleteImage(context, img)
+                    selectedImageForViewer = null
+                }
+            },
             onOpenSettings = { showSettingsDialog = true }
         )
     }
@@ -409,43 +462,6 @@ fun MainScreen(viewModel: ImageViewModel = viewModel()) {
             context = context,
             image = exifTargetImage!!,
             onDismiss = { exifTargetImage = null }
-        )
-    }
-
-    // Delete confirmation dialog
-    if (deleteTargetImage != null) {
-        val toDelete = deleteTargetImage!!
-        AlertDialog(
-            onDismissRequest = { deleteTargetImage = null },
-            icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("Delete Image") },
-            text = { Text("Are you sure you want to permanently delete \"${toDelete.name}\"?") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        deleteTargetImage = null
-                        if (selectedImageForViewer?.path == toDelete.path) {
-                            selectedImageForViewer = null
-                        }
-                        coroutineScope.launch {
-                            val success = viewModel.deleteImage(context, toDelete)
-                            if (success) {
-                                Toast.makeText(context, "Image deleted", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "Could not delete image", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Delete")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteTargetImage = null }) {
-                    Text("Cancel")
-                }
-            }
         )
     }
 
@@ -585,6 +601,14 @@ fun FullScreenPhotoViewer(
                                 expanded = showOverflowMenu,
                                 onDismissRequest = { showOverflowMenu = false }
                             ) {
+                                LeftBreakoutSharingItem(
+                                    onSelectTransport = { transport ->
+                                        showOverflowMenu = false
+                                        P2PTransferManager.startSendSession(context, listOf(image.toFileItem()), transport)
+                                    },
+                                    onCloseParent = { showOverflowMenu = false }
+                                )
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                                 DropdownMenuItem(
                                     text = { Text("Read EXIF Data") },
                                     leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
@@ -775,5 +799,48 @@ fun shareImageFile(context: Context, image: ImageItem) {
         Toast.makeText(context, "Cannot share image: ${e.message}", Toast.LENGTH_SHORT).show()
     }
 }
+
+fun shareMultipleFiles(context: Context, items: List<FileItem>) {
+    try {
+        if (items.isEmpty()) return
+        if (items.size == 1) {
+            shareImageFile(context, ImageItem.fromFileItem(items.first()))
+            return
+        }
+        val uris = ArrayList(items.map {
+            FileProvider.getUriForFile(context, "${context.packageName}.provider", it.file)
+        })
+        val shareIntent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "*/*"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(shareIntent, "Share ${items.size} files"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "Cannot share files: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+fun openFileWithIntent(context: Context, file: File) {
+    try {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+        val ext = file.extension.lowercase()
+        val mime = when (ext) {
+            "pdf" -> "application/pdf"
+            "txt" -> "text/plain"
+            "zip" -> "application/zip"
+            "apk" -> "application/vnd.android.package-archive"
+            else -> "*/*"
+        }
+        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(viewIntent)
+    } catch (e: Exception) {
+        Toast.makeText(context, "No app found to open this file", Toast.LENGTH_SHORT).show()
+    }
+}
+
 
 
