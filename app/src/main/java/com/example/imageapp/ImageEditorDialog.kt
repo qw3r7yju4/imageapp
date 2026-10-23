@@ -819,8 +819,8 @@ fun EditorBottomSection(
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(255.dp)
             .navigationBarsPadding()
+            .height(310.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             EditorTabsHeader(
