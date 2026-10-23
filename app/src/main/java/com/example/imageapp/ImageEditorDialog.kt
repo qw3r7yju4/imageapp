@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -272,18 +273,118 @@ object ImageEditHelper {
         return output
     }
 
+    fun buildComposeColorFilter(
+        brightness: Float,
+        contrast: Float,
+        saturation: Float,
+        preset: ColorPreset
+    ): ColorFilter {
+        val cm = android.graphics.ColorMatrix()
+        cm.setSaturation(saturation)
+
+        val scale = contrast
+        val translate = brightness + (1f - contrast) * 128f
+        val cbMat = android.graphics.ColorMatrix(
+            floatArrayOf(
+                scale, 0f, 0f, 0f, translate,
+                0f, scale, 0f, 0f, translate,
+                0f, 0f, scale, 0f, translate,
+                0f, 0f, 0f, 1f, 0f
+            )
+        )
+        cm.postConcat(cbMat)
+
+        when (preset) {
+            ColorPreset.ORIGINAL -> {}
+            ColorPreset.GRAYSCALE -> {
+                val gray = android.graphics.ColorMatrix()
+                gray.setSaturation(0f)
+                cm.postConcat(gray)
+            }
+            ColorPreset.SEPIA -> {
+                val sepia = android.graphics.ColorMatrix(
+                    floatArrayOf(
+                        0.393f, 0.769f, 0.189f, 0f, 0f,
+                        0.349f, 0.686f, 0.168f, 0f, 0f,
+                        0.272f, 0.534f, 0.131f, 0f, 0f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+                cm.postConcat(sepia)
+            }
+            ColorPreset.WARM -> {
+                val warm = android.graphics.ColorMatrix(
+                    floatArrayOf(
+                        1.2f, 0f, 0f, 0f, 20f,
+                        0f, 1.0f, 0f, 0f, 10f,
+                        0f, 0f, 0.8f, 0f, -15f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+                cm.postConcat(warm)
+            }
+            ColorPreset.COOL -> {
+                val cool = android.graphics.ColorMatrix(
+                    floatArrayOf(
+                        0.8f, 0f, 0f, 0f, -10f,
+                        0f, 1.0f, 0f, 0f, 5f,
+                        0f, 0f, 1.25f, 0f, 25f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+                cm.postConcat(cool)
+            }
+            ColorPreset.VIVID -> {
+                val vivid = android.graphics.ColorMatrix()
+                vivid.setSaturation(1.5f)
+                cm.postConcat(vivid)
+            }
+            ColorPreset.VINTAGE -> {
+                val vintage = android.graphics.ColorMatrix(
+                    floatArrayOf(
+                        0.9f, 0.1f, 0.1f, 0f, 30f,
+                        0.1f, 0.8f, 0.1f, 0f, 20f,
+                        0.1f, 0.1f, 0.6f, 0f, 10f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+                cm.postConcat(vintage)
+            }
+            ColorPreset.INVERT -> {
+                val invert = android.graphics.ColorMatrix(
+                    floatArrayOf(
+                        -1f, 0f, 0f, 0f, 255f,
+                        0f, -1f, 0f, 0f, 255f,
+                        0f, 0f, -1f, 0f, 255f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+                cm.postConcat(invert)
+            }
+        }
+
+        return ColorFilter.colorMatrix(
+            androidx.compose.ui.graphics.ColorMatrix(cm.array)
+        )
+    }
+
     fun saveProcessedImage(
         context: Context,
         originalImagePath: String,
         targetFile: File,
-        baseBitmap: Bitmap,
+        transformedBitmap: Bitmap,
+        brightness: Float,
+        contrast: Float,
+        saturation: Float,
+        preset: ColorPreset,
         strokes: List<DrawStroke>,
         overlayText: String,
         textColor: Color,
         textSizeSp: Float,
         textPosFrac: Offset
     ): Boolean {
-        val finalBmp = renderDrawingsAndText(baseBitmap, strokes, overlayText, textColor, textSizeSp, textPosFrac)
+        val coloredBmp = applyColorMatrix(transformedBitmap, brightness, contrast, saturation, preset)
+        val finalBmp = renderDrawingsAndText(coloredBmp, strokes, overlayText, textColor, textSizeSp, textPosFrac)
         return try {
             targetFile.parentFile?.mkdirs()
             FileOutputStream(targetFile).use { fos ->
@@ -304,6 +405,7 @@ object ImageEditHelper {
 @Composable
 fun EditorCanvas(
     bitmap: Bitmap,
+    colorFilter: ColorFilter?,
     activeTab: ImageEditorTab,
     strokeColor: Color,
     strokeWidth: Float,
@@ -355,7 +457,8 @@ fun EditorCanvas(
             drawImage(
                 image = bmpImage,
                 dstOffset = IntOffset(left.roundToInt(), top.roundToInt()),
-                dstSize = androidx.compose.ui.unit.IntSize(destW.roundToInt(), destH.roundToInt())
+                dstSize = androidx.compose.ui.unit.IntSize(destW.roundToInt(), destH.roundToInt()),
+                colorFilter = colorFilter
             )
 
             // Crop frame & rule-of-thirds grid
@@ -547,7 +650,12 @@ fun AdjustControls(
     onSaturationChange: (Float) -> Unit,
     onResetAdjustments: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -614,6 +722,8 @@ fun AdjustControls(
                 modifier = Modifier.fillMaxWidth().height(36.dp)
             )
         }
+
+        Spacer(Modifier.height(24.dp))
     }
 }
 
@@ -857,7 +967,7 @@ fun EditorBottomSection(
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(340.dp)
+            .height(240.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             EditorTabsHeader(
@@ -869,7 +979,6 @@ fun EditorBottomSection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
             ) {
                 when (state.activeTab) {
                     ImageEditorTab.CROP_ROTATE -> {
@@ -1011,7 +1120,7 @@ fun ImageEditorDialog(
         isLoading = false
     }
 
-    val processedBitmap = remember(
+    val transformedBitmap = remember(
         originalBitmap,
         state.rotationDeg,
         state.straightenAngle,
@@ -1020,14 +1129,10 @@ fun ImageEditorDialog(
         state.cropLeft,
         state.cropTop,
         state.cropRight,
-        state.cropBottom,
-        state.brightness,
-        state.contrast,
-        state.saturation,
-        state.colorPreset
+        state.cropBottom
     ) {
         val base = originalBitmap ?: return@remember null
-        val transformed = ImageEditHelper.transformBitmap(
+        ImageEditHelper.transformBitmap(
             base,
             state.rotationDeg,
             state.straightenAngle,
@@ -1035,12 +1140,39 @@ fun ImageEditorDialog(
             state.flipV,
             listOf(state.cropLeft, state.cropTop, state.cropRight, state.cropBottom)
         )
-        ImageEditHelper.applyColorMatrix(transformed, state.brightness, state.contrast, state.saturation, state.colorPreset)
+    }
+
+    val liveColorFilter = remember(
+        state.brightness,
+        state.contrast,
+        state.saturation,
+        state.colorPreset
+    ) {
+        ImageEditHelper.buildComposeColorFilter(
+            state.brightness,
+            state.contrast,
+            state.saturation,
+            state.colorPreset
+        )
     }
 
     fun handleSave(targetFile: File) {
-        val bmp = processedBitmap ?: return
-        val success = ImageEditHelper.saveProcessedImage(context, image.path, targetFile, bmp, state.strokes, state.overlayText, state.textColor, state.textSizeSp, state.textPosFrac)
+        val bmp = transformedBitmap ?: return
+        val success = ImageEditHelper.saveProcessedImage(
+            context,
+            image.path,
+            targetFile,
+            bmp,
+            state.brightness,
+            state.contrast,
+            state.saturation,
+            state.colorPreset,
+            state.strokes,
+            state.overlayText,
+            state.textColor,
+            state.textSizeSp,
+            state.textPosFrac
+        )
         if (success) {
             Toast.makeText(context, "Saved: ${targetFile.name}", Toast.LENGTH_SHORT).show()
             onImageSaved(targetFile)
@@ -1082,9 +1214,10 @@ fun ImageEditorDialog(
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(color = Color.White)
-                } else if (processedBitmap != null) {
+                } else if (transformedBitmap != null) {
                     EditorCanvas(
-                        bitmap = processedBitmap,
+                        bitmap = transformedBitmap,
+                        colorFilter = liveColorFilter,
                         activeTab = state.activeTab,
                         strokeColor = state.strokeColor,
                         strokeWidth = state.strokeWidth,
