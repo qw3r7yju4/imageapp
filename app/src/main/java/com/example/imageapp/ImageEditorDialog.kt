@@ -547,34 +547,72 @@ fun AdjustControls(
     onSaturationChange: (Float) -> Unit,
     onResetAdjustments: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Adjustments", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Text("Adjustments", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             TextButton(onClick = onResetAdjustments) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
                 Text("Reset")
             }
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            val bStr = if (brightness > 0) "+${brightness.roundToInt()}" else "${brightness.roundToInt()}"
-            Text("Brightness ($bStr)", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(110.dp))
-            Slider(value = brightness, onValueChange = onBrightnessChange, valueRange = -100f..100f, modifier = Modifier.weight(1f))
+        // Brightness
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Brightness", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                val bStr = if (brightness > 0) "+${brightness.roundToInt()}" else "${brightness.roundToInt()}"
+                Text(bStr, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            }
+            Slider(
+                value = brightness,
+                onValueChange = onBrightnessChange,
+                valueRange = -100f..100f,
+                modifier = Modifier.fillMaxWidth().height(36.dp)
+            )
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            val cStr = String.format(java.util.Locale.US, "%.1fx", contrast)
-            Text("Contrast ($cStr)", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(110.dp))
-            Slider(value = contrast, onValueChange = onContrastChange, valueRange = 0.5f..2.0f, modifier = Modifier.weight(1f))
+        // Contrast
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Contrast", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                val cStr = String.format(java.util.Locale.US, "%.1fx", contrast)
+                Text(cStr, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            }
+            Slider(
+                value = contrast,
+                onValueChange = onContrastChange,
+                valueRange = 0.5f..2.0f,
+                modifier = Modifier.fillMaxWidth().height(36.dp)
+            )
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            val sStr = String.format(java.util.Locale.US, "%.1fx", saturation)
-            Text("Saturation ($sStr)", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(110.dp))
-            Slider(value = saturation, onValueChange = onSaturationChange, valueRange = 0.0f..2.0f, modifier = Modifier.weight(1f))
+        // Saturation
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Saturation", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                val sStr = String.format(java.util.Locale.US, "%.1fx", saturation)
+                Text(sStr, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            }
+            Slider(
+                value = saturation,
+                onValueChange = onSaturationChange,
+                valueRange = 0.0f..2.0f,
+                modifier = Modifier.fillMaxWidth().height(36.dp)
+            )
         }
     }
 }
@@ -819,8 +857,7 @@ fun EditorBottomSection(
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
-            .height(310.dp)
+            .height(340.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             EditorTabsHeader(
@@ -1021,6 +1058,7 @@ fun ImageEditorDialog(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
+                .navigationBarsPadding()
         ) {
             EditorTopBar(
                 hasStrokes = state.strokes.isNotEmpty(),
