@@ -68,4 +68,35 @@ class ZipAndSharingTest {
         P2PTransferManager.cancelTransfer()
         assertEquals(TransferStatus.IDLE, P2PTransferManager.transferState.value.status)
     }
+
+    @Test
+    fun testExifDataWithGps() {
+        val exifData = ExifHelper.ExifData(
+            fileName = "photo.jpg",
+            filePath = "/storage/photo.jpg",
+            formattedSize = "2.4 MB",
+            dimensions = "4000 x 3000",
+            dateTaken = "2026-10-23 12:00:00",
+            camera = "Google Pixel 11",
+            cameraMake = "Google",
+            cameraModel = "Pixel 11",
+            artist = "Photographer",
+            description = "Nature shot",
+            copyright = "2026",
+            aperture = "f/1.8",
+            iso = "100",
+            exposureTime = "1/100s",
+            focalLength = "24mm",
+            flash = "Did not fire",
+            gps = "37.77490, -122.41940",
+            latitude = 37.7749,
+            longitude = -122.4194
+        )
+
+        assertEquals(37.7749, exifData.latitude)
+        assertEquals(-122.4194, exifData.longitude)
+        assertEquals("Google", exifData.cameraMake)
+        assertEquals("Pixel 11", exifData.cameraModel)
+    }
 }
+

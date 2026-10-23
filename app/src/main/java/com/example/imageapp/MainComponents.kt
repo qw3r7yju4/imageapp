@@ -51,6 +51,9 @@ fun LightBlueTopBar(
     onPaste: () -> Unit,
     onMoveTo: () -> Unit,
     onDelete: () -> Unit,
+    onEdit: () -> Unit = {},
+    onRename: () -> Unit = {},
+    onEditExif: () -> Unit = {},
     onShare: () -> Unit,
     onSelectTransport: (TransferTransport) -> Unit,
     onToggleHiddenFiles: () -> Unit,
@@ -107,6 +110,9 @@ fun LightBlueTopBar(
             IconButton(onClick = onDelete, enabled = selectedCount > 0) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete")
             }
+            IconButton(onClick = onEdit, enabled = selectedCount == 1) {
+                Icon(Icons.Default.Edit, contentDescription = "Edit")
+            }
             IconButton(onClick = onShare) {
                 Icon(Icons.Default.Share, contentDescription = "Share")
             }
@@ -115,6 +121,19 @@ fun LightBlueTopBar(
                     Icon(Icons.Default.MoreVert, contentDescription = "More options")
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    if (selectedCount == 1) {
+                        DropdownMenuItem(
+                            text = { Text("Rename") },
+                            leadingIcon = { Icon(Icons.Default.DriveFileRenameOutline, null) },
+                            onClick = { showMenu = false; onRename() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Edit EXIF Metadata") },
+                            leadingIcon = { Icon(Icons.Default.Info, null) },
+                            onClick = { showMenu = false; onEditExif() }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    }
                     LeftBreakoutSharingItem(
                         onSelectTransport = { transport ->
                             showMenu = false

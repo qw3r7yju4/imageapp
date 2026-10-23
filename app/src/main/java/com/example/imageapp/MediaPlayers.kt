@@ -10,12 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.FastForward
-import androidx.compose.material.icons.filled.FastRewind
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,7 +31,8 @@ import kotlinx.coroutines.isActive
 fun VideoPlayerDialog(
     fileItem: FileItem,
     onDismiss: () -> Unit,
-    onShare: (FileItem) -> Unit
+    onShare: (FileItem) -> Unit,
+    onEdit: (FileItem) -> Unit = {}
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -66,6 +62,9 @@ fun VideoPlayerDialog(
                         }
                     },
                     actions = {
+                        IconButton(onClick = { onEdit(fileItem) }) {
+                            Icon(Icons.Default.ContentCut, contentDescription = "Trim / Edit", tint = Color.White)
+                        }
                         IconButton(onClick = { onShare(fileItem) }) {
                             Icon(Icons.Default.Share, contentDescription = "Share")
                         }
@@ -104,7 +103,8 @@ fun VideoPlayerDialog(
 fun AudioPlayerDialog(
     fileItem: FileItem,
     onDismiss: () -> Unit,
-    onShare: (FileItem) -> Unit
+    onShare: (FileItem) -> Unit,
+    onEdit: (FileItem) -> Unit = {}
 ) {
     var isPlaying by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableLongStateOf(0L) }
@@ -247,10 +247,17 @@ fun AudioPlayerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onShare(fileItem) }) {
-                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Share")
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                TextButton(onClick = { onEdit(fileItem) }) {
+                    Icon(Icons.Default.ContentCut, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Trim")
+                }
+                TextButton(onClick = { onShare(fileItem) }) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Share")
+                }
             }
         },
         dismissButton = {

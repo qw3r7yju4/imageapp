@@ -114,6 +114,11 @@ fun MainScreen(viewModel: ImageViewModel = viewModel()) {
     var exifTargetImage by remember { mutableStateOf<ImageItem?>(null) }
     var contextMenuFile by remember { mutableStateOf<FileItem?>(null) }
 
+    var imageToEdit by remember { mutableStateOf<ImageItem?>(null) }
+    var mediaToTrim by remember { mutableStateOf<FileItem?>(null) }
+    var fileToRename by remember { mutableStateOf<File?>(null) }
+    var exifEditTargetImage by remember { mutableStateOf<ImageItem?>(null) }
+
     // Resolve currently selected FileItem objects
     val currentVisibleItems = remember(appMode, mediaItems, directoryFiles, selectedStorageId) {
         if (appMode == AppMode.ALL_FILES) directoryFiles
@@ -199,6 +204,18 @@ fun MainScreen(viewModel: ImageViewModel = viewModel()) {
                 },
                 onMoveTo = { showMoveToDialog = true },
                 onDelete = { showDeleteConfirmDialog = true },
+                onEdit = {
+                    if (selectedFileItems.size == 1) {
+                        val item = selectedFileItems.first()
+                        when (item.mediaType) {
+                            MediaType.IMAGE -> imageToEdit = ImageItem.fromFileItem(item)
+                            MediaType.VIDEO, MediaType.AUDIO -> mediaToTrim = item
+                            else -> fileToRename = item.file
+                        }
+                    }
+                },
+                onRename = { fileToRename = selectedFileItems.firstOrNull()?.file },
+                onEditExif = { selectedFileItems.firstOrNull()?.let { exifEditTargetImage = ImageItem.fromFileItem(it) } },
                 onShare = {
                     requestSharingPermissionsIfNeeded()
                     showShareDialog = true
@@ -414,7 +431,11 @@ fun MainScreen(viewModel: ImageViewModel = viewModel()) {
         VideoPlayerDialog(
             fileItem = selectedVideoForPlayer!!,
             onDismiss = { selectedVideoForPlayer = null },
-            onShare = { item -> shareMultipleFiles(context, listOf(item)) }
+            onShare = { item -> shareMultipleFiles(context, listOf(item)) },
+            onEdit = { item ->
+                mediaToTrim = item
+                selectedVideoForPlayer = null
+            }
         )
     }
 
@@ -422,7 +443,45 @@ fun MainScreen(viewModel: ImageViewModel = viewModel()) {
         AudioPlayerDialog(
             fileItem = selectedAudioForPlayer!!,
             onDismiss = { selectedAudioForPlayer = null },
-            onShare = { item -> shareMultipleFiles(context, listOf(item)) }
+            onShare = { item -> shareMultipleFiles(context, listOf(item)) },
+            onEdit = { item ->
+                mediaToTrim = item
+                selectedAudioForPlayer = null
+            }
+        )
+    }
+
+    if (imageToEdit != null) {
+        ImageEditorDialog(
+            image = imageToEdit!!,
+            volumes = volumes,
+            onDismiss = { imageToEdit = null },
+            onImageSaved = { viewModel.refresh(context) }
+        )
+    }
+
+    if (mediaToTrim != null) {
+        MediaTrimmerDialog(
+            fileItem = mediaToTrim!!,
+            volumes = volumes,
+            onDismiss = { mediaToTrim = null },
+            onMediaSaved = { viewModel.refresh(context) }
+        )
+    }
+
+    if (fileToRename != null) {
+        RenameFileDialog(
+            file = fileToRename!!,
+            onDismiss = { fileToRename = null },
+            onRenamed = { viewModel.refresh(context) }
+        )
+    }
+
+    if (exifEditTargetImage != null) {
+        ExifEditorDialog(
+            image = exifEditTargetImage!!,
+            onDismiss = { exifEditTargetImage = null },
+            onSaved = { viewModel.refresh(context) }
         )
     }
 
@@ -446,6 +505,8 @@ fun MainScreen(viewModel: ImageViewModel = viewModel()) {
             image = selectedImageForViewer!!,
             onClose = { selectedImageForViewer = null },
             onReadExif = { img -> exifTargetImage = img },
+            onEditImage = { img -> imageToEdit = img },
+            onEditExif = { img -> exifEditTargetImage = img },
             onDelete = { img ->
                 coroutineScope.launch {
                     viewModel.deleteImage(context, img)
@@ -461,7 +522,8 @@ fun MainScreen(viewModel: ImageViewModel = viewModel()) {
         ExifDetailsDialog(
             context = context,
             image = exifTargetImage!!,
-            onDismiss = { exifTargetImage = null }
+            onDismiss = { exifTargetImage = null },
+            onEditExif = { img -> exifEditTargetImage = img }
         )
     }
 
@@ -540,11 +602,14 @@ fun FullScreenPhotoViewer(
     image: ImageItem,
     onClose: () -> Unit,
     onReadExif: (ImageItem) -> Unit,
+    onEditImage: (ImageItem) -> Unit = {},
+    onEditExif: (ImageItem) -> Unit = {},
     onDelete: (ImageItem) -> Unit,
     onOpenSettings: () -> Unit
 ) {
     val context = LocalContext.current
     var showOverflowMenu by remember { mutableStateOf(false) }
+    val exifData = remember(image) { ExifHelper.getExifData(context, image.path) }
 
     BackHandler {
         onClose()
@@ -584,6 +649,24 @@ fun FullScreenPhotoViewer(
                         }
                     },
                     actions = {
+                        if (exifData?.latitude != null && exifData.longitude != null) {
+                            IconButton(onClick = {
+                                ExifHelper.openLocationInMaps(context, exifData.latitude, exifData.longitude, image.name)
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = "Go to Maps Location",
+                                    tint = Color(0xFF64B5F6)
+                                )
+                            }
+                        }
+                        IconButton(onClick = { onEditImage(image) }) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit Photo",
+                                tint = Color.White
+                            )
+                        }
                         IconButton(onClick = { shareImageFile(context, image) }) {
                             Icon(
                                 imageVector = Icons.Default.Share,
@@ -617,6 +700,24 @@ fun FullScreenPhotoViewer(
                                         onReadExif(image)
                                     }
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("Edit EXIF Metadata") },
+                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        onEditExif(image)
+                                    }
+                                )
+                                if (exifData?.latitude != null && exifData.longitude != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Go to Maps Location") },
+                                        leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFF64B5F6)) },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            ExifHelper.openLocationInMaps(context, exifData.latitude, exifData.longitude, image.name)
+                                        }
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text("Delete") },
                                     leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
@@ -708,7 +809,8 @@ fun SettingsDialog(
 fun ExifDetailsDialog(
     context: Context,
     image: ImageItem,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onEditExif: (ImageItem) -> Unit = {}
 ) {
     val exifData = remember(image) {
         ExifHelper.getExifData(context, image.path)
@@ -753,14 +855,38 @@ fun ExifDetailsDialog(
                 }
                 if (!exifData?.gps.isNullOrBlank()) {
                     ExifItemRow(label = "GPS Coordinates", value = exifData!!.gps!!)
+                    if (exifData.latitude != null && exifData.longitude != null) {
+                        OutlinedButton(
+                            onClick = {
+                                ExifHelper.openLocationInMaps(context, exifData.latitude, exifData.longitude, exifData.fileName)
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        ) {
+                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("📍 Go to Maps Location")
+                        }
+                    }
                 }
                 ExifItemRow(label = "Storage", value = image.storageName)
                 ExifItemRow(label = "Full Path", value = image.path)
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        onDismiss()
+                        onEditExif(image)
+                    }
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Edit EXIF")
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Close")
+                }
             }
         }
     )
