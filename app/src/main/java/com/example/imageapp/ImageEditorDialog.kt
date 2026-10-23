@@ -47,10 +47,12 @@ import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.roundToInt
 
-enum class ImageEditorTab {
-    TRANSFORM,
-    ADJUSTMENTS,
-    DRAW_TEXT
+enum class ImageEditorTab(val label: String) {
+    CROP_ROTATE("Crop & Rotate"),
+    FILTERS("Filters"),
+    ADJUST("Adjust"),
+    DRAW("Draw"),
+    TEXT("Text")
 }
 
 enum class ColorPreset(val label: String) {
@@ -194,15 +196,17 @@ object ImageEditHelper {
     fun transformBitmap(
         src: Bitmap,
         rotationDegrees: Float,
+        straightenAngle: Float,
         flipH: Boolean,
         flipV: Boolean,
         cropRectFrac: List<Float>
     ): Bitmap {
+        val totalRotation = rotationDegrees + straightenAngle
         val matrix = Matrix()
         val scaleX = if (flipH) -1f else 1f
         val scaleY = if (flipV) -1f else 1f
         matrix.postScale(scaleX, scaleY, src.width / 2f, src.height / 2f)
-        matrix.postRotate(rotationDegrees, src.width / 2f, src.height / 2f)
+        matrix.postRotate(totalRotation, src.width / 2f, src.height / 2f)
 
         val transformed = Bitmap.createBitmap(src, 0, 0, src.width, src.height, matrix, true)
 
@@ -210,8 +214,8 @@ object ImageEditHelper {
         val cropTop = (cropRectFrac[1] * transformed.height).roundToInt().coerceIn(0, transformed.height - 1)
         val cropRight = (cropRectFrac[2] * transformed.width).roundToInt().coerceIn(cropLeft + 1, transformed.width)
         val cropBottom = (cropRectFrac[3] * transformed.height).roundToInt().coerceIn(cropTop + 1, transformed.height)
-        val cropWidth = cropRight - cropLeft
-        val cropHeight = cropBottom - cropTop
+        val cropWidth = (cropRight - cropLeft).coerceAtLeast(1)
+        val cropHeight = (cropBottom - cropTop).coerceAtLeast(1)
 
         return Bitmap.createBitmap(transformed, cropLeft, cropTop, cropWidth, cropHeight)
     }
@@ -317,7 +321,7 @@ fun EditorCanvas(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(activeTab, strokeColor, strokeWidth) {
-                if (activeTab == ImageEditorTab.DRAW_TEXT) {
+                if (activeTab == ImageEditorTab.DRAW) {
                     detectDragGestures(
                         onDragStart = { offset ->
                             onPointsChange(listOf(Offset(offset.x / size.width, offset.y / size.height)))
@@ -351,6 +355,36 @@ fun EditorCanvas(
                 dstOffset = IntOffset(left.roundToInt(), top.roundToInt()),
                 dstSize = androidx.compose.ui.unit.IntSize(destW.roundToInt(), destH.roundToInt())
             )
+
+            // Crop frame & rule-of-thirds grid
+            if (activeTab == ImageEditorTab.CROP_ROTATE) {
+                val gridColor = Color.White.copy(alpha = 0.45f)
+                drawLine(gridColor, Offset(left + destW / 3f, top), Offset(left + destW / 3f, top + destH), strokeWidth = 1.5f)
+                drawLine(gridColor, Offset(left + 2f * destW / 3f, top), Offset(left + 2f * destW / 3f, top + destH), strokeWidth = 1.5f)
+                drawLine(gridColor, Offset(left, top + destH / 3f), Offset(left + destW, top + destH / 3f), strokeWidth = 1.5f)
+                drawLine(gridColor, Offset(left, top + 2f * destH / 3f), Offset(left + destW, top + 2f * destH / 3f), strokeWidth = 1.5f)
+
+                drawRect(
+                    color = Color.White,
+                    topLeft = Offset(left, top),
+                    size = androidx.compose.ui.geometry.Size(destW, destH),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5f)
+                )
+
+                val cornerLen = 28f
+                // Top-Left
+                drawLine(Color.White, Offset(left, top), Offset(left + cornerLen, top), strokeWidth = 6f)
+                drawLine(Color.White, Offset(left, top), Offset(left, top + cornerLen), strokeWidth = 6f)
+                // Top-Right
+                drawLine(Color.White, Offset(left + destW, top), Offset(left + destW - cornerLen, top), strokeWidth = 6f)
+                drawLine(Color.White, Offset(left + destW, top), Offset(left + destW, top + cornerLen), strokeWidth = 6f)
+                // Bottom-Left
+                drawLine(Color.White, Offset(left, top + destH), Offset(left + cornerLen, top + destH), strokeWidth = 6f)
+                drawLine(Color.White, Offset(left, top + destH), Offset(left, top + destH - cornerLen), strokeWidth = 6f)
+                // Bottom-Right
+                drawLine(Color.White, Offset(left + destW, top + destH), Offset(left + destW - cornerLen, top + destH), strokeWidth = 6f)
+                drawLine(Color.White, Offset(left + destW, top + destH), Offset(left + destW, top + destH - cornerLen), strokeWidth = 6f)
+            }
 
             for (stroke in strokes) {
                 val pts = stroke.points
@@ -404,84 +438,23 @@ fun EditorCanvas(
 
 
 @Composable
-fun EditorBottomSection(
-    activeTab: ImageEditorTab,
-    onTabSelected: (ImageEditorTab) -> Unit,
+fun CropRotateControls(
     rotation: Float,
     onRotate: (Float) -> Unit,
+    straighten: Float,
+    onStraightenChange: (Float) -> Unit,
     flipH: Boolean,
     onToggleFlipH: () -> Unit,
     flipV: Boolean,
     onToggleFlipV: () -> Unit,
-    onSetCropRatio: (Float, Float, Float, Float) -> Unit,
-    brightness: Float,
-    onBrightnessChange: (Float) -> Unit,
-    contrast: Float,
-    onContrastChange: (Float) -> Unit,
-    saturation: Float,
-    onSaturationChange: (Float) -> Unit,
-    selectedPreset: ColorPreset,
-    onSelectPreset: (ColorPreset) -> Unit,
-    strokeColor: Color,
-    onSelectColor: (Color) -> Unit,
-    strokeWidth: Float,
-    onStrokeWidthChange: (Float) -> Unit,
-    overlayText: String,
-    onTextChange: (String) -> Unit,
-    onClearStrokes: () -> Unit
+    selectedRatio: String,
+    onSelectRatio: (String, Float, Float, Float, Float) -> Unit,
+    onResetCrop: () -> Unit
 ) {
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 8.dp) {
-        Column {
-            when (activeTab) {
-                ImageEditorTab.TRANSFORM -> {
-                    TransformControls(rotation, onRotate, flipH, onToggleFlipH, flipV, onToggleFlipV, onSetCropRatio)
-                }
-                ImageEditorTab.ADJUSTMENTS -> {
-                    AdjustmentControls(brightness, onBrightnessChange, contrast, onContrastChange, saturation, onSaturationChange, selectedPreset, onSelectPreset)
-                }
-                ImageEditorTab.DRAW_TEXT -> {
-                    DrawTextControls(strokeColor, onSelectColor, strokeWidth, onStrokeWidthChange, overlayText, onTextChange, onClearStrokes)
-                }
-            }
-
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                NavigationBarItem(
-                    selected = activeTab == ImageEditorTab.TRANSFORM,
-                    onClick = { onTabSelected(ImageEditorTab.TRANSFORM) },
-                    icon = { Icon(Icons.Default.CropRotate, null) },
-                    label = { Text("Transform") }
-                )
-                NavigationBarItem(
-                    selected = activeTab == ImageEditorTab.ADJUSTMENTS,
-                    onClick = { onTabSelected(ImageEditorTab.ADJUSTMENTS) },
-                    icon = { Icon(Icons.Default.Tune, null) },
-                    label = { Text("Adjust") }
-                )
-                NavigationBarItem(
-                    selected = activeTab == ImageEditorTab.DRAW_TEXT,
-                    onClick = { onTabSelected(ImageEditorTab.DRAW_TEXT) },
-                    icon = { Icon(Icons.Default.Brush, null) },
-                    label = { Text("Draw & Text") }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun TransformControls(
-    rotation: Float,
-    onRotate: (Float) -> Unit,
-    flipH: Boolean,
-    onToggleFlipH: () -> Unit,
-    flipV: Boolean,
-    onToggleFlipV: () -> Unit,
-    onSetCropRatio: (Float, Float, Float, Float) -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = { onRotate(-90f) }) {
@@ -490,35 +463,39 @@ fun TransformControls(
             IconButton(onClick = { onRotate(90f) }) {
                 Icon(Icons.Default.RotateRight, contentDescription = "Rotate Right 90°")
             }
-            FilterChip(
-                selected = flipH,
-                onClick = onToggleFlipH,
-                label = { Text("Flip H") }
-            )
-            FilterChip(
-                selected = flipV,
-                onClick = onToggleFlipV,
-                label = { Text("Flip V") }
-            )
+            FilterChip(selected = flipH, onClick = onToggleFlipH, label = { Text("Flip H") })
+            FilterChip(selected = flipV, onClick = onToggleFlipV, label = { Text("Flip V") })
+            TextButton(onClick = onResetCrop) { Text("Reset") }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(4.dp))
 
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val angleStr = if (straighten > 0) "+${straighten.roundToInt()}°" else "${straighten.roundToInt()}°"
+            Text("Straighten: $angleStr", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(100.dp))
+            Slider(value = straighten, onValueChange = onStraightenChange, valueRange = -45f..45f, modifier = Modifier.weight(1f))
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             item {
-                FilterChip(selected = true, onClick = { onSetCropRatio(0f, 0f, 1f, 1f) }, label = { Text("Full") })
+                FilterChip(selected = selectedRatio == "Full", onClick = { onSelectRatio("Full", 0f, 0f, 1f, 1f) }, label = { Text("Full") })
             }
             item {
-                FilterChip(selected = false, onClick = { onSetCropRatio(0.125f, 0.125f, 0.875f, 0.875f) }, label = { Text("1:1") })
+                FilterChip(selected = selectedRatio == "1:1", onClick = { onSelectRatio("1:1", 0.125f, 0.125f, 0.875f, 0.875f) }, label = { Text("1:1") })
             }
             item {
-                FilterChip(selected = false, onClick = { onSetCropRatio(0.05f, 0.15f, 0.95f, 0.85f) }, label = { Text("4:3") })
+                FilterChip(selected = selectedRatio == "4:3", onClick = { onSelectRatio("4:3", 0.05f, 0.15f, 0.95f, 0.85f) }, label = { Text("4:3") })
             }
             item {
-                FilterChip(selected = false, onClick = { onSetCropRatio(0f, 0.22f, 1f, 0.78f) }, label = { Text("16:9") })
+                FilterChip(selected = selectedRatio == "16:9", onClick = { onSelectRatio("16:9", 0f, 0.22f, 1f, 0.78f) }, label = { Text("16:9") })
             }
             item {
-                FilterChip(selected = false, onClick = { onSetCropRatio(0.22f, 0f, 0.78f, 1f) }, label = { Text("9:16") })
+                FilterChip(selected = selectedRatio == "9:16", onClick = { onSelectRatio("9:16", 0.22f, 0f, 0.78f, 1f) }, label = { Text("9:16") })
             }
         }
     }
@@ -526,17 +503,13 @@ fun TransformControls(
 
 
 @Composable
-fun AdjustmentControls(
-    brightness: Float,
-    onBrightnessChange: (Float) -> Unit,
-    contrast: Float,
-    onContrastChange: (Float) -> Unit,
-    saturation: Float,
-    onSaturationChange: (Float) -> Unit,
+fun FiltersControls(
     selectedPreset: ColorPreset,
     onSelectPreset: (ColorPreset) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Text("Color Filter Presets", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             items(ColorPreset.entries) { preset ->
                 FilterChip(
@@ -546,39 +519,65 @@ fun AdjustmentControls(
                 )
             }
         }
+    }
+}
 
-        Spacer(Modifier.height(8.dp))
+@Composable
+fun AdjustControls(
+    brightness: Float,
+    onBrightnessChange: (Float) -> Unit,
+    contrast: Float,
+    onContrastChange: (Float) -> Unit,
+    saturation: Float,
+    onSaturationChange: (Float) -> Unit,
+    onResetAdjustments: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Adjustments", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            TextButton(onClick = onResetAdjustments) {
+                Text("Reset")
+            }
+        }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Brightness", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(72.dp))
+            val bStr = if (brightness > 0) "+${brightness.roundToInt()}" else "${brightness.roundToInt()}"
+            Text("Brightness ($bStr)", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(110.dp))
             Slider(value = brightness, onValueChange = onBrightnessChange, valueRange = -100f..100f, modifier = Modifier.weight(1f))
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Contrast", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(72.dp))
+            val cStr = String.format(java.util.Locale.US, "%.1fx", contrast)
+            Text("Contrast ($cStr)", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(110.dp))
             Slider(value = contrast, onValueChange = onContrastChange, valueRange = 0.5f..2.0f, modifier = Modifier.weight(1f))
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Saturation", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(72.dp))
+            val sStr = String.format(java.util.Locale.US, "%.1fx", saturation)
+            Text("Saturation ($sStr)", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(110.dp))
             Slider(value = saturation, onValueChange = onSaturationChange, valueRange = 0.0f..2.0f, modifier = Modifier.weight(1f))
         }
     }
 }
 
+
 @Composable
-fun DrawTextControls(
+fun DrawControls(
     selectedColor: Color,
     onSelectColor: (Color) -> Unit,
     strokeWidth: Float,
     onStrokeWidthChange: (Float) -> Unit,
-    overlayText: String,
-    onTextChange: (String) -> Unit,
+    hasStrokes: Boolean,
+    onUndoStroke: () -> Unit,
     onClearStrokes: () -> Unit
 ) {
-    val colors = listOf(Color.Red, Color.Blue, Color.Green, Color.Yellow, Color(0xFFFF9800), Color(0xFF9C27B0), Color.White, Color.Black)
+    val colors = listOf(Color.Red, Color(0xFFFF9800), Color.Yellow, Color.Green, Color.Blue, Color(0xFF9C27B0), Color.White, Color.Black)
 
-    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -601,22 +600,85 @@ fun DrawTextControls(
                 }
             }
 
+            if (hasStrokes) {
+                IconButton(onClick = onUndoStroke) {
+                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                }
+            }
             TextButton(onClick = onClearStrokes) {
-                Text("Clear Drawing")
+                Text("Clear")
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(4.dp))
 
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Brush Size: ${strokeWidth.roundToInt()}px", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(110.dp))
+            Slider(value = strokeWidth, onValueChange = onStrokeWidthChange, valueRange = 4f..48f, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+fun TextControls(
+    overlayText: String,
+    onTextChange: (String) -> Unit,
+    textColor: Color,
+    onSelectTextColor: (Color) -> Unit,
+    textSizeSp: Float,
+    onTextSizeChange: (Float) -> Unit,
+    onClearText: () -> Unit
+) {
+    val colors = listOf(Color.White, Color.Black, Color.Red, Color(0xFFFF9800), Color.Yellow, Color.Green, Color.Blue, Color(0xFF9C27B0))
+
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         OutlinedTextField(
             value = overlayText,
             onValueChange = onTextChange,
-            label = { Text("Overlay Text (drag on canvas to position)") },
+            label = { Text("Overlay Text (drag on photo to position)") },
+            trailingIcon = {
+                if (overlayText.isNotBlank()) {
+                    IconButton(onClick = onClearText) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear")
+                    }
+                }
+            },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
+
+        Spacer(Modifier.height(4.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                items(colors) { col ->
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(col)
+                            .border(
+                                width = if (textColor == col) 3.dp else 1.dp,
+                                color = if (textColor == col) MaterialTheme.colorScheme.primary else Color.Gray,
+                                shape = CircleShape
+                            )
+                            .clickable { onSelectTextColor(col) }
+                    )
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.width(160.dp)) {
+                Text("${textSizeSp.roundToInt()}sp", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(36.dp))
+                Slider(value = textSizeSp, onValueChange = onTextSizeChange, valueRange = 14f..64f, modifier = Modifier.weight(1f))
+            }
+        }
     }
 }
+
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -633,6 +695,7 @@ fun EditorTopBar(
     var showSaveMenu by remember { mutableStateOf(false) }
 
     TopAppBar(
+        modifier = Modifier.statusBarsPadding(),
         title = { Text("Edit Photo", color = Color.White) },
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = Color.Black.copy(alpha = 0.85f),
@@ -728,36 +791,161 @@ fun EditorScaffoldContent(
 }
 
 
+@Composable
+fun EditorBottomSection(
+    state: EditorParamState
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 8.dp,
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding()
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            ScrollableTabRow(
+                selectedTabIndex = state.activeTab.ordinal,
+                edgePadding = 8.dp,
+                containerColor = MaterialTheme.colorScheme.surfaceContainer
+            ) {
+                ImageEditorTab.entries.forEach { tab ->
+                    val isSelected = state.activeTab == tab
+                    Tab(
+                        selected = isSelected,
+                        onClick = { state.activeTab = tab },
+                        text = { Text(tab.label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                        icon = {
+                            Icon(
+                                imageVector = when (tab) {
+                                    ImageEditorTab.CROP_ROTATE -> Icons.Default.CropRotate
+                                    ImageEditorTab.FILTERS -> Icons.Default.ColorLens
+                                    ImageEditorTab.ADJUST -> Icons.Default.Tune
+                                    ImageEditorTab.DRAW -> Icons.Default.Brush
+                                    ImageEditorTab.TEXT -> Icons.Default.TextFields
+                                },
+                                contentDescription = tab.label
+                            )
+                        }
+                    )
+                }
+            }
+
+            when (state.activeTab) {
+                ImageEditorTab.CROP_ROTATE -> {
+                    CropRotateControls(
+                        rotation = state.rotationDeg,
+                        onRotate = { state.rotationDeg = (state.rotationDeg + it) % 360f },
+                        straighten = state.straightenAngle,
+                        onStraightenChange = { state.straightenAngle = it },
+                        flipH = state.flipH,
+                        onToggleFlipH = { state.flipH = !state.flipH },
+                        flipV = state.flipV,
+                        onToggleFlipV = { state.flipV = !state.flipV },
+                        selectedRatio = state.selectedCropRatio,
+                        onSelectRatio = { label, l, t, r, b ->
+                            state.selectedCropRatio = label
+                            state.cropLeft = l
+                            state.cropTop = t
+                            state.cropRight = r
+                            state.cropBottom = b
+                        },
+                        onResetCrop = {
+                            state.rotationDeg = 0f
+                            state.straightenAngle = 0f
+                            state.flipH = false
+                            state.flipV = false
+                            state.cropLeft = 0f
+                            state.cropTop = 0f
+                            state.cropRight = 1f
+                            state.cropBottom = 1f
+                            state.selectedCropRatio = "Full"
+                        }
+                    )
+                }
+                ImageEditorTab.FILTERS -> {
+                    FiltersControls(
+                        selectedPreset = state.colorPreset,
+                        onSelectPreset = { state.colorPreset = it }
+                    )
+                }
+                ImageEditorTab.ADJUST -> {
+                    AdjustControls(
+                        brightness = state.brightness,
+                        onBrightnessChange = { state.brightness = it },
+                        contrast = state.contrast,
+                        onContrastChange = { state.contrast = it },
+                        saturation = state.saturation,
+                        onSaturationChange = { state.saturation = it },
+                        onResetAdjustments = {
+                            state.brightness = 0f
+                            state.contrast = 1f
+                            state.saturation = 1f
+                        }
+                    )
+                }
+                ImageEditorTab.DRAW -> {
+                    DrawControls(
+                        selectedColor = state.strokeColor,
+                        onSelectColor = { state.strokeColor = it },
+                        strokeWidth = state.strokeWidth,
+                        onStrokeWidthChange = { state.strokeWidth = it },
+                        hasStrokes = state.strokes.isNotEmpty(),
+                        onUndoStroke = { state.strokes.removeLastOrNull() },
+                        onClearStrokes = { state.strokes.clear() }
+                    )
+                }
+                ImageEditorTab.TEXT -> {
+                    TextControls(
+                        overlayText = state.overlayText,
+                        onTextChange = { state.overlayText = it },
+                        textColor = state.textColor,
+                        onSelectTextColor = { state.textColor = it },
+                        textSizeSp = state.textSizeSp,
+                        onTextSizeChange = { state.textSizeSp = it },
+                        onClearText = { state.overlayText = "" }
+                    )
+                }
+            }
+        }
+    }
+}
+
+
 class EditorParamState {
-    var activeTab by mutableStateOf(ImageEditorTab.TRANSFORM)
+    var activeTab by mutableStateOf(ImageEditorTab.CROP_ROTATE)
     var rotationDeg by mutableFloatStateOf(0f)
+    var straightenAngle by mutableFloatStateOf(0f)
     var flipH by mutableStateOf(false)
     var flipV by mutableStateOf(false)
     var cropLeft by mutableFloatStateOf(0f)
     var cropTop by mutableFloatStateOf(0f)
     var cropRight by mutableFloatStateOf(1f)
     var cropBottom by mutableFloatStateOf(1f)
+    var selectedCropRatio by mutableStateOf("Full")
+
     var brightness by mutableFloatStateOf(0f)
     var contrast by mutableFloatStateOf(1f)
     var saturation by mutableFloatStateOf(1f)
     var colorPreset by mutableStateOf(ColorPreset.ORIGINAL)
+
     val strokes = mutableStateListOf<DrawStroke>()
     var currentPoints by mutableStateOf<List<Offset>>(emptyList())
     var strokeColor by mutableStateOf(Color.Red)
     var strokeWidth by mutableFloatStateOf(12f)
+
     var overlayText by mutableStateOf("")
     var textColor by mutableStateOf(Color.White)
     var textSizeSp by mutableFloatStateOf(24f)
     var textPosFrac by mutableStateOf(Offset(0.2f, 0.5f))
 
     fun reset() {
-        rotationDeg = 0f; flipH = false; flipV = false
+        rotationDeg = 0f; straightenAngle = 0f; flipH = false; flipV = false
         cropLeft = 0f; cropTop = 0f; cropRight = 1f; cropBottom = 1f
+        selectedCropRatio = "Full"
         brightness = 0f; contrast = 1f; saturation = 1f
         colorPreset = ColorPreset.ORIGINAL
         strokes.clear(); overlayText = ""
     }
 }
+
 
 
 @Composable
@@ -779,9 +967,30 @@ fun ImageEditorDialog(
         isLoading = false
     }
 
-    val processedBitmap = remember(originalBitmap, state.rotationDeg, state.flipH, state.flipV, state.cropLeft, state.cropTop, state.cropRight, state.cropBottom, state.brightness, state.contrast, state.saturation, state.colorPreset) {
+    val processedBitmap = remember(
+        originalBitmap,
+        state.rotationDeg,
+        state.straightenAngle,
+        state.flipH,
+        state.flipV,
+        state.cropLeft,
+        state.cropTop,
+        state.cropRight,
+        state.cropBottom,
+        state.brightness,
+        state.contrast,
+        state.saturation,
+        state.colorPreset
+    ) {
         val base = originalBitmap ?: return@remember null
-        val transformed = ImageEditHelper.transformBitmap(base, state.rotationDeg, state.flipH, state.flipV, listOf(state.cropLeft, state.cropTop, state.cropRight, state.cropBottom))
+        val transformed = ImageEditHelper.transformBitmap(
+            base,
+            state.rotationDeg,
+            state.straightenAngle,
+            state.flipH,
+            state.flipV,
+            listOf(state.cropLeft, state.cropTop, state.cropRight, state.cropBottom)
+        )
         ImageEditHelper.applyColorMatrix(transformed, state.brightness, state.contrast, state.saturation, state.colorPreset)
     }
 
@@ -799,7 +1008,7 @@ fun ImageEditorDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)
     ) {
         Scaffold(
             containerColor = Color.Black,
@@ -818,32 +1027,7 @@ fun ImageEditorDialog(
                 )
             },
             bottomBar = {
-                EditorBottomSection(
-                    activeTab = state.activeTab,
-                    onTabSelected = { state.activeTab = it },
-                    rotation = state.rotationDeg,
-                    onRotate = { state.rotationDeg = (state.rotationDeg + it) % 360f },
-                    flipH = state.flipH,
-                    onToggleFlipH = { state.flipH = !state.flipH },
-                    flipV = state.flipV,
-                    onToggleFlipV = { state.flipV = !state.flipV },
-                    onSetCropRatio = { l, t, r, b -> state.cropLeft = l; state.cropTop = t; state.cropRight = r; state.cropBottom = b },
-                    brightness = state.brightness,
-                    onBrightnessChange = { state.brightness = it },
-                    contrast = state.contrast,
-                    onContrastChange = { state.contrast = it },
-                    saturation = state.saturation,
-                    onSaturationChange = { state.saturation = it },
-                    selectedPreset = state.colorPreset,
-                    onSelectPreset = { state.colorPreset = it },
-                    strokeColor = state.strokeColor,
-                    onSelectColor = { state.strokeColor = it; state.textColor = it },
-                    strokeWidth = state.strokeWidth,
-                    onStrokeWidthChange = { state.strokeWidth = it },
-                    overlayText = state.overlayText,
-                    onTextChange = { state.overlayText = it },
-                    onClearStrokes = { state.strokes.clear() }
-                )
+                EditorBottomSection(state = state)
             }
         ) { padding ->
             EditorScaffoldContent(
@@ -881,4 +1065,5 @@ fun ImageEditorDialog(
         )
     }
 }
+
 
