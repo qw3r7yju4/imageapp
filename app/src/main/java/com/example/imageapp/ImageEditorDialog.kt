@@ -18,8 +18,10 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
@@ -507,15 +509,28 @@ fun FiltersControls(
     selectedPreset: ColorPreset,
     onSelectPreset: (ColorPreset) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Text("Color Filter Presets", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(8.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            items(ColorPreset.entries) { preset ->
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        val row1 = listOf(ColorPreset.ORIGINAL, ColorPreset.GRAYSCALE, ColorPreset.SEPIA, ColorPreset.WARM)
+        val row2 = listOf(ColorPreset.COOL, ColorPreset.VIVID, ColorPreset.VINTAGE, ColorPreset.INVERT)
+
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            row1.forEach { preset ->
                 FilterChip(
                     selected = selectedPreset == preset,
                     onClick = { onSelectPreset(preset) },
-                    label = { Text(preset.label) }
+                    label = { Text(preset.label, fontSize = 12.sp, maxLines = 1) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            row2.forEach { preset ->
+                FilterChip(
+                    selected = selectedPreset == preset,
+                    onClick = { onSelectPreset(preset) },
+                    label = { Text(preset.label, fontSize = 12.sp, maxLines = 1) },
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
@@ -746,45 +761,48 @@ fun EditorTopBar(
 }
 
 
+
 @Composable
-fun EditorScaffoldContent(
-    padding: PaddingValues,
-    isLoading: Boolean,
-    bitmap: Bitmap?,
+fun EditorTabsHeader(
     activeTab: ImageEditorTab,
-    strokeColor: Color,
-    strokeWidth: Float,
-    strokes: List<DrawStroke>,
-    currentPoints: List<Offset>,
-    onPointsChange: (List<Offset>) -> Unit,
-    onStrokeCompleted: (DrawStroke) -> Unit,
-    overlayText: String,
-    textColor: Color,
-    textSizeSp: Float,
-    textPosFrac: Offset,
-    onTextPosChange: (Offset) -> Unit
+    onTabSelected: (ImageEditorTab) -> Unit
 ) {
-    Box(
-        modifier = Modifier.fillMaxSize().padding(padding).background(Color.Black),
-        contentAlignment = Alignment.Center
+    TabRow(
+        selectedTabIndex = activeTab.ordinal,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
-        if (isLoading) {
-            CircularProgressIndicator(color = Color.White)
-        } else if (bitmap != null) {
-            EditorCanvas(
-                bitmap = bitmap,
-                activeTab = activeTab,
-                strokeColor = strokeColor,
-                strokeWidth = strokeWidth,
-                strokes = strokes,
-                currentPoints = currentPoints,
-                onPointsChange = onPointsChange,
-                onStrokeCompleted = onStrokeCompleted,
-                overlayText = overlayText,
-                textColor = textColor,
-                textSizeSp = textSizeSp,
-                textPosFrac = textPosFrac,
-                onTextPosChange = onTextPosChange
+        ImageEditorTab.entries.forEach { tab ->
+            val isSelected = activeTab == tab
+            Tab(
+                selected = isSelected,
+                onClick = { onTabSelected(tab) },
+                text = {
+                    Text(
+                        text = when (tab) {
+                            ImageEditorTab.CROP_ROTATE -> "Crop"
+                            ImageEditorTab.FILTERS -> "Filters"
+                            ImageEditorTab.ADJUST -> "Adjust"
+                            ImageEditorTab.DRAW -> "Draw"
+                            ImageEditorTab.TEXT -> "Text"
+                        },
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    )
+                },
+                icon = {
+                    Icon(
+                        imageVector = when (tab) {
+                            ImageEditorTab.CROP_ROTATE -> Icons.Default.CropRotate
+                            ImageEditorTab.FILTERS -> Icons.Default.ColorLens
+                            ImageEditorTab.ADJUST -> Icons.Default.Tune
+                            ImageEditorTab.DRAW -> Icons.Default.Brush
+                            ImageEditorTab.TEXT -> Icons.Default.TextFields
+                        },
+                        contentDescription = tab.label,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             )
         }
     }
@@ -798,110 +816,99 @@ fun EditorBottomSection(
     Surface(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 8.dp,
-        modifier = Modifier.fillMaxWidth().navigationBarsPadding()
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(255.dp)
+            .navigationBarsPadding()
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            ScrollableTabRow(
-                selectedTabIndex = state.activeTab.ordinal,
-                edgePadding = 8.dp,
-                containerColor = MaterialTheme.colorScheme.surfaceContainer
-            ) {
-                ImageEditorTab.entries.forEach { tab ->
-                    val isSelected = state.activeTab == tab
-                    Tab(
-                        selected = isSelected,
-                        onClick = { state.activeTab = tab },
-                        text = { Text(tab.label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                        icon = {
-                            Icon(
-                                imageVector = when (tab) {
-                                    ImageEditorTab.CROP_ROTATE -> Icons.Default.CropRotate
-                                    ImageEditorTab.FILTERS -> Icons.Default.ColorLens
-                                    ImageEditorTab.ADJUST -> Icons.Default.Tune
-                                    ImageEditorTab.DRAW -> Icons.Default.Brush
-                                    ImageEditorTab.TEXT -> Icons.Default.TextFields
-                                },
-                                contentDescription = tab.label
-                            )
-                        }
-                    )
-                }
-            }
+        Column(modifier = Modifier.fillMaxSize()) {
+            EditorTabsHeader(
+                activeTab = state.activeTab,
+                onTabSelected = { state.activeTab = it }
+            )
 
-            when (state.activeTab) {
-                ImageEditorTab.CROP_ROTATE -> {
-                    CropRotateControls(
-                        rotation = state.rotationDeg,
-                        onRotate = { state.rotationDeg = (state.rotationDeg + it) % 360f },
-                        straighten = state.straightenAngle,
-                        onStraightenChange = { state.straightenAngle = it },
-                        flipH = state.flipH,
-                        onToggleFlipH = { state.flipH = !state.flipH },
-                        flipV = state.flipV,
-                        onToggleFlipV = { state.flipV = !state.flipV },
-                        selectedRatio = state.selectedCropRatio,
-                        onSelectRatio = { label, l, t, r, b ->
-                            state.selectedCropRatio = label
-                            state.cropLeft = l
-                            state.cropTop = t
-                            state.cropRight = r
-                            state.cropBottom = b
-                        },
-                        onResetCrop = {
-                            state.rotationDeg = 0f
-                            state.straightenAngle = 0f
-                            state.flipH = false
-                            state.flipV = false
-                            state.cropLeft = 0f
-                            state.cropTop = 0f
-                            state.cropRight = 1f
-                            state.cropBottom = 1f
-                            state.selectedCropRatio = "Full"
-                        }
-                    )
-                }
-                ImageEditorTab.FILTERS -> {
-                    FiltersControls(
-                        selectedPreset = state.colorPreset,
-                        onSelectPreset = { state.colorPreset = it }
-                    )
-                }
-                ImageEditorTab.ADJUST -> {
-                    AdjustControls(
-                        brightness = state.brightness,
-                        onBrightnessChange = { state.brightness = it },
-                        contrast = state.contrast,
-                        onContrastChange = { state.contrast = it },
-                        saturation = state.saturation,
-                        onSaturationChange = { state.saturation = it },
-                        onResetAdjustments = {
-                            state.brightness = 0f
-                            state.contrast = 1f
-                            state.saturation = 1f
-                        }
-                    )
-                }
-                ImageEditorTab.DRAW -> {
-                    DrawControls(
-                        selectedColor = state.strokeColor,
-                        onSelectColor = { state.strokeColor = it },
-                        strokeWidth = state.strokeWidth,
-                        onStrokeWidthChange = { state.strokeWidth = it },
-                        hasStrokes = state.strokes.isNotEmpty(),
-                        onUndoStroke = { state.strokes.removeLastOrNull() },
-                        onClearStrokes = { state.strokes.clear() }
-                    )
-                }
-                ImageEditorTab.TEXT -> {
-                    TextControls(
-                        overlayText = state.overlayText,
-                        onTextChange = { state.overlayText = it },
-                        textColor = state.textColor,
-                        onSelectTextColor = { state.textColor = it },
-                        textSizeSp = state.textSizeSp,
-                        onTextSizeChange = { state.textSizeSp = it },
-                        onClearText = { state.overlayText = "" }
-                    )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                when (state.activeTab) {
+                    ImageEditorTab.CROP_ROTATE -> {
+                        CropRotateControls(
+                            rotation = state.rotationDeg,
+                            onRotate = { state.rotationDeg = (state.rotationDeg + it) % 360f },
+                            straighten = state.straightenAngle,
+                            onStraightenChange = { state.straightenAngle = it },
+                            flipH = state.flipH,
+                            onToggleFlipH = { state.flipH = !state.flipH },
+                            flipV = state.flipV,
+                            onToggleFlipV = { state.flipV = !state.flipV },
+                            selectedRatio = state.selectedCropRatio,
+                            onSelectRatio = { label, l, t, r, b ->
+                                state.selectedCropRatio = label
+                                state.cropLeft = l
+                                state.cropTop = t
+                                state.cropRight = r
+                                state.cropBottom = b
+                            },
+                            onResetCrop = {
+                                state.rotationDeg = 0f
+                                state.straightenAngle = 0f
+                                state.flipH = false
+                                state.flipV = false
+                                state.cropLeft = 0f
+                                state.cropTop = 0f
+                                state.cropRight = 1f
+                                state.cropBottom = 1f
+                                state.selectedCropRatio = "Full"
+                            }
+                        )
+                    }
+                    ImageEditorTab.FILTERS -> {
+                        FiltersControls(
+                            selectedPreset = state.colorPreset,
+                            onSelectPreset = { state.colorPreset = it }
+                        )
+                    }
+                    ImageEditorTab.ADJUST -> {
+                        AdjustControls(
+                            brightness = state.brightness,
+                            onBrightnessChange = { state.brightness = it },
+                            contrast = state.contrast,
+                            onContrastChange = { state.contrast = it },
+                            saturation = state.saturation,
+                            onSaturationChange = { state.saturation = it },
+                            onResetAdjustments = {
+                                state.brightness = 0f
+                                state.contrast = 1f
+                                state.saturation = 1f
+                            }
+                        )
+                    }
+                    ImageEditorTab.DRAW -> {
+                        DrawControls(
+                            selectedColor = state.strokeColor,
+                            onSelectColor = { state.strokeColor = it },
+                            strokeWidth = state.strokeWidth,
+                            onStrokeWidthChange = { state.strokeWidth = it },
+                            hasStrokes = state.strokes.isNotEmpty(),
+                            onUndoStroke = { state.strokes.removeLastOrNull() },
+                            onClearStrokes = { state.strokes.clear() }
+                        )
+                    }
+                    ImageEditorTab.TEXT -> {
+                        TextControls(
+                            overlayText = state.overlayText,
+                            onTextChange = { state.overlayText = it },
+                            textColor = state.textColor,
+                            onSelectTextColor = { state.textColor = it },
+                            textSizeSp = state.textSizeSp,
+                            onTextSizeChange = { state.textSizeSp = it },
+                            onClearText = { state.overlayText = "" }
+                        )
+                    }
                 }
             }
         }
@@ -1010,43 +1017,53 @@ fun ImageEditorDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)
     ) {
-        Scaffold(
-            containerColor = Color.Black,
-            topBar = {
-                EditorTopBar(
-                    hasStrokes = state.strokes.isNotEmpty(),
-                    onCancel = onDismiss,
-                    onUndo = { state.strokes.removeLastOrNull() },
-                    onReset = { state.reset() },
-                    onSaveCopy = {
-                        val parent = image.file.parentFile ?: context.filesDir
-                        handleSave(File(parent, "edited_${System.currentTimeMillis()}_${image.file.name}"))
-                    },
-                    onOverwrite = { handleSave(image.file) },
-                    onSaveToFolder = { showCustomFolderBrowser = true }
-                )
-            },
-            bottomBar = {
-                EditorBottomSection(state = state)
-            }
-        ) { padding ->
-            EditorScaffoldContent(
-                padding = padding,
-                isLoading = isLoading,
-                bitmap = processedBitmap,
-                activeTab = state.activeTab,
-                strokeColor = state.strokeColor,
-                strokeWidth = state.strokeWidth,
-                strokes = state.strokes,
-                currentPoints = state.currentPoints,
-                onPointsChange = { state.currentPoints = it },
-                onStrokeCompleted = { state.strokes.add(it) },
-                overlayText = state.overlayText,
-                textColor = state.textColor,
-                textSizeSp = state.textSizeSp,
-                textPosFrac = state.textPosFrac,
-                onTextPosChange = { state.textPosFrac = it }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            EditorTopBar(
+                hasStrokes = state.strokes.isNotEmpty(),
+                onCancel = onDismiss,
+                onUndo = { state.strokes.removeLastOrNull() },
+                onReset = { state.reset() },
+                onSaveCopy = {
+                    val parent = image.file.parentFile ?: context.filesDir
+                    handleSave(File(parent, "edited_${System.currentTimeMillis()}_${image.file.name}"))
+                },
+                onOverwrite = { handleSave(image.file) },
+                onSaveToFolder = { showCustomFolderBrowser = true }
             )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(color = Color.White)
+                } else if (processedBitmap != null) {
+                    EditorCanvas(
+                        bitmap = processedBitmap,
+                        activeTab = state.activeTab,
+                        strokeColor = state.strokeColor,
+                        strokeWidth = state.strokeWidth,
+                        strokes = state.strokes,
+                        currentPoints = state.currentPoints,
+                        onPointsChange = { state.currentPoints = it },
+                        onStrokeCompleted = { state.strokes.add(it) },
+                        overlayText = state.overlayText,
+                        textColor = state.textColor,
+                        textSizeSp = state.textSizeSp,
+                        textPosFrac = state.textPosFrac,
+                        onTextPosChange = { state.textPosFrac = it }
+                    )
+                }
+            }
+
+            EditorBottomSection(state = state)
         }
     }
 
