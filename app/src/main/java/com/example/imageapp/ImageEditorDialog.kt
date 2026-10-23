@@ -10,11 +10,18 @@ import android.graphics.Matrix
 import android.graphics.Paint as AndroidPaint
 import android.media.MediaScannerConnection
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -42,8 +49,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.example.imageapp.model.ImageItem
 import com.example.imageapp.model.StorageVolumeInfo
 import java.io.File
@@ -554,9 +559,15 @@ fun CropRotateControls(
     onToggleFlipV: () -> Unit,
     selectedRatio: String,
     onSelectRatio: (String, Float, Float, Float, Float) -> Unit,
-    onResetCrop: () -> Unit
+    onResetCrop: () -> Unit,
+    onApply: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -603,6 +614,18 @@ fun CropRotateControls(
                 FilterChip(selected = selectedRatio == "9:16", onClick = { onSelectRatio("9:16", 0.22f, 0f, 0.78f, 1f) }, label = { Text("9:16") })
             }
         }
+
+        Spacer(Modifier.height(10.dp))
+
+        Button(
+            onClick = onApply,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Apply Crop & Rotation", fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -610,9 +633,15 @@ fun CropRotateControls(
 @Composable
 fun FiltersControls(
     selectedPreset: ColorPreset,
-    onSelectPreset: (ColorPreset) -> Unit
+    onSelectPreset: (ColorPreset) -> Unit,
+    onApply: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
         val row1 = listOf(ColorPreset.ORIGINAL, ColorPreset.GRAYSCALE, ColorPreset.SEPIA, ColorPreset.WARM)
         val row2 = listOf(ColorPreset.COOL, ColorPreset.VIVID, ColorPreset.VINTAGE, ColorPreset.INVERT)
 
@@ -637,6 +666,18 @@ fun FiltersControls(
                 )
             }
         }
+
+        Spacer(Modifier.height(10.dp))
+
+        Button(
+            onClick = onApply,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Apply Filter", fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -648,7 +689,8 @@ fun AdjustControls(
     onContrastChange: (Float) -> Unit,
     saturation: Float,
     onSaturationChange: (Float) -> Unit,
-    onResetAdjustments: () -> Unit
+    onResetAdjustments: () -> Unit,
+    onApply: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -723,7 +765,17 @@ fun AdjustControls(
             )
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(10.dp))
+
+        Button(
+            onClick = onApply,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Apply Adjustments", fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -736,11 +788,17 @@ fun DrawControls(
     onStrokeWidthChange: (Float) -> Unit,
     hasStrokes: Boolean,
     onUndoStroke: () -> Unit,
-    onClearStrokes: () -> Unit
+    onClearStrokes: () -> Unit,
+    onApply: () -> Unit
 ) {
     val colors = listOf(Color.Red, Color(0xFFFF9800), Color.Yellow, Color.Green, Color.Blue, Color(0xFF9C27B0), Color.White, Color.Black)
 
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -779,6 +837,18 @@ fun DrawControls(
             Text("Brush Size: ${strokeWidth.roundToInt()}px", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(110.dp))
             Slider(value = strokeWidth, onValueChange = onStrokeWidthChange, valueRange = 4f..48f, modifier = Modifier.weight(1f))
         }
+
+        Spacer(Modifier.height(10.dp))
+
+        Button(
+            onClick = onApply,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Apply Drawings", fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -790,11 +860,17 @@ fun TextControls(
     onSelectTextColor: (Color) -> Unit,
     textSizeSp: Float,
     onTextSizeChange: (Float) -> Unit,
-    onClearText: () -> Unit
+    onClearText: () -> Unit,
+    onApply: () -> Unit
 ) {
     val colors = listOf(Color.White, Color.Black, Color.Red, Color(0xFFFF9800), Color.Yellow, Color.Green, Color.Blue, Color(0xFF9C27B0))
 
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
         OutlinedTextField(
             value = overlayText,
             onValueChange = onTextChange,
@@ -839,6 +915,18 @@ fun TextControls(
                 Slider(value = textSizeSp, onValueChange = onTextSizeChange, valueRange = 14f..64f, modifier = Modifier.weight(1f))
             }
         }
+
+        Spacer(Modifier.height(10.dp))
+
+        Button(
+            onClick = onApply,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Apply Text", fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -847,6 +935,7 @@ fun TextControls(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorTopBar(
+    modifier: Modifier = Modifier,
     hasStrokes: Boolean,
     onCancel: () -> Unit,
     onUndo: () -> Unit,
@@ -858,7 +947,7 @@ fun EditorTopBar(
     var showSaveMenu by remember { mutableStateOf(false) }
 
     TopAppBar(
-        modifier = Modifier.statusBarsPadding(),
+        modifier = modifier,
         title = { Text("Edit Photo", color = Color.White) },
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = Color.Black.copy(alpha = 0.85f),
@@ -913,6 +1002,7 @@ fun EditorTopBar(
 @Composable
 fun EditorTabsHeader(
     activeTab: ImageEditorTab,
+    isExpanded: Boolean,
     onTabSelected: (ImageEditorTab) -> Unit
 ) {
     TabRow(
@@ -920,7 +1010,7 @@ fun EditorTabsHeader(
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
         ImageEditorTab.entries.forEach { tab ->
-            val isSelected = activeTab == tab
+            val isSelected = isExpanded && activeTab == tab
             Tab(
                 selected = isSelected,
                 onClick = { onTabSelected(tab) },
@@ -958,104 +1048,140 @@ fun EditorTabsHeader(
 
 
 @Composable
+fun TabDrawerContent(
+    state: EditorParamState,
+    onApply: () -> Unit
+) {
+    when (state.activeTab) {
+        ImageEditorTab.ADJUST -> {
+            AdjustControls(
+                brightness = state.brightness,
+                onBrightnessChange = { state.brightness = it },
+                contrast = state.contrast,
+                onContrastChange = { state.contrast = it },
+                saturation = state.saturation,
+                onSaturationChange = { state.saturation = it },
+                onResetAdjustments = {
+                    state.brightness = 0f
+                    state.contrast = 1f
+                    state.saturation = 1f
+                },
+                onApply = onApply
+            )
+        }
+        ImageEditorTab.CROP_ROTATE -> {
+            CropRotateControls(
+                rotation = state.rotationDeg,
+                onRotate = { state.rotationDeg = (state.rotationDeg + it) % 360f },
+                straighten = state.straightenAngle,
+                onStraightenChange = { state.straightenAngle = it },
+                flipH = state.flipH,
+                onToggleFlipH = { state.flipH = !state.flipH },
+                flipV = state.flipV,
+                onToggleFlipV = { state.flipV = !state.flipV },
+                selectedRatio = state.selectedCropRatio,
+                onSelectRatio = { label, l, t, r, b ->
+                    state.selectedCropRatio = label
+                    state.cropLeft = l
+                    state.cropTop = t
+                    state.cropRight = r
+                    state.cropBottom = b
+                },
+                onResetCrop = {
+                    state.rotationDeg = 0f
+                    state.straightenAngle = 0f
+                    state.flipH = false
+                    state.flipV = false
+                    state.cropLeft = 0f
+                    state.cropTop = 0f
+                    state.cropRight = 1f
+                    state.cropBottom = 1f
+                    state.selectedCropRatio = "Full"
+                },
+                onApply = onApply
+            )
+        }
+        ImageEditorTab.FILTERS -> {
+            FiltersControls(
+                selectedPreset = state.colorPreset,
+                onSelectPreset = { state.colorPreset = it },
+                onApply = onApply
+            )
+        }
+        ImageEditorTab.DRAW -> {
+            DrawControls(
+                selectedColor = state.strokeColor,
+                onSelectColor = { state.strokeColor = it },
+                strokeWidth = state.strokeWidth,
+                onStrokeWidthChange = { state.strokeWidth = it },
+                hasStrokes = state.strokes.isNotEmpty(),
+                onUndoStroke = { state.strokes.removeLastOrNull() },
+                onClearStrokes = { state.strokes.clear() },
+                onApply = onApply
+            )
+        }
+        ImageEditorTab.TEXT -> {
+            TextControls(
+                overlayText = state.overlayText,
+                onTextChange = { state.overlayText = it },
+                textColor = state.textColor,
+                onSelectTextColor = { state.textColor = it },
+                textSizeSp = state.textSizeSp,
+                onTextSizeChange = { state.textSizeSp = it },
+                onClearText = { state.overlayText = "" },
+                onApply = onApply
+            )
+        }
+    }
+}
+
+@Composable
 fun EditorBottomSection(
-    state: EditorParamState
+    state: EditorParamState,
+    isExpanded: Boolean,
+    onSelectTab: (ImageEditorTab) -> Unit,
+    onApply: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        tonalElevation = 10.dp,
+        shadowElevation = 16.dp,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(240.dp)
+            .wrapContentHeight()
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            EditorTabsHeader(
-                activeTab = state.activeTab,
-                onTabSelected = { state.activeTab = it }
-            )
-
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
+                    .padding(top = 8.dp, bottom = 4.dp),
+                contentAlignment = Alignment.Center
             ) {
-                when (state.activeTab) {
-                    ImageEditorTab.CROP_ROTATE -> {
-                        CropRotateControls(
-                            rotation = state.rotationDeg,
-                            onRotate = { state.rotationDeg = (state.rotationDeg + it) % 360f },
-                            straighten = state.straightenAngle,
-                            onStraightenChange = { state.straightenAngle = it },
-                            flipH = state.flipH,
-                            onToggleFlipH = { state.flipH = !state.flipH },
-                            flipV = state.flipV,
-                            onToggleFlipV = { state.flipV = !state.flipV },
-                            selectedRatio = state.selectedCropRatio,
-                            onSelectRatio = { label, l, t, r, b ->
-                                state.selectedCropRatio = label
-                                state.cropLeft = l
-                                state.cropTop = t
-                                state.cropRight = r
-                                state.cropBottom = b
-                            },
-                            onResetCrop = {
-                                state.rotationDeg = 0f
-                                state.straightenAngle = 0f
-                                state.flipH = false
-                                state.flipV = false
-                                state.cropLeft = 0f
-                                state.cropTop = 0f
-                                state.cropRight = 1f
-                                state.cropBottom = 1f
-                                state.selectedCropRatio = "Full"
-                            }
-                        )
-                    }
-                    ImageEditorTab.FILTERS -> {
-                        FiltersControls(
-                            selectedPreset = state.colorPreset,
-                            onSelectPreset = { state.colorPreset = it }
-                        )
-                    }
-                    ImageEditorTab.ADJUST -> {
-                        AdjustControls(
-                            brightness = state.brightness,
-                            onBrightnessChange = { state.brightness = it },
-                            contrast = state.contrast,
-                            onContrastChange = { state.contrast = it },
-                            saturation = state.saturation,
-                            onSaturationChange = { state.saturation = it },
-                            onResetAdjustments = {
-                                state.brightness = 0f
-                                state.contrast = 1f
-                                state.saturation = 1f
-                            }
-                        )
-                    }
-                    ImageEditorTab.DRAW -> {
-                        DrawControls(
-                            selectedColor = state.strokeColor,
-                            onSelectColor = { state.strokeColor = it },
-                            strokeWidth = state.strokeWidth,
-                            onStrokeWidthChange = { state.strokeWidth = it },
-                            hasStrokes = state.strokes.isNotEmpty(),
-                            onUndoStroke = { state.strokes.removeLastOrNull() },
-                            onClearStrokes = { state.strokes.clear() }
-                        )
-                    }
-                    ImageEditorTab.TEXT -> {
-                        TextControls(
-                            overlayText = state.overlayText,
-                            onTextChange = { state.overlayText = it },
-                            textColor = state.textColor,
-                            onSelectTextColor = { state.textColor = it },
-                            textSizeSp = state.textSizeSp,
-                            onTextSizeChange = { state.textSizeSp = it },
-                            onClearText = { state.overlayText = "" }
-                        )
-                    }
-                }
+                Box(
+                    modifier = Modifier
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                )
+            }
+
+            EditorTabsHeader(
+                activeTab = state.activeTab,
+                isExpanded = isExpanded,
+                onTabSelected = onSelectTab
+            )
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                TabDrawerContent(state = state, onApply = onApply)
             }
         }
     }
@@ -1063,7 +1189,7 @@ fun EditorBottomSection(
 
 
 class EditorParamState {
-    var activeTab by mutableStateOf(ImageEditorTab.CROP_ROTATE)
+    var activeTab by mutableStateOf(ImageEditorTab.ADJUST)
     var rotationDeg by mutableFloatStateOf(0f)
     var straightenAngle by mutableFloatStateOf(0f)
     var flipH by mutableStateOf(false)
@@ -1112,6 +1238,7 @@ fun ImageEditorDialog(
     var originalBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     val state = remember { EditorParamState() }
+    var isDrawerExpanded by remember { mutableStateOf(true) }
     var showCustomFolderBrowser by remember { mutableStateOf(false) }
 
     LaunchedEffect(image.path) {
@@ -1182,15 +1309,57 @@ fun ImageEditorDialog(
         }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)
+    BackHandler(onBack = onDismiss)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {}
+            )
     ) {
-        Column(
+        // LAYER 1: Stationary Photo Canvas (Center)
+        // Fixed padding at top for the TopBar (56.dp) and bottom for the collapsed Tab bar (56.dp)
+        // It NEVER shifts, scales, or resizes when the drawer opens, extends, or collapses!
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black)
+                .statusBarsPadding()
                 .navigationBarsPadding()
+                .padding(top = 56.dp, bottom = 56.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(color = Color.White)
+            } else if (transformedBitmap != null) {
+                EditorCanvas(
+                    bitmap = transformedBitmap,
+                    colorFilter = liveColorFilter,
+                    activeTab = if (isDrawerExpanded) state.activeTab else ImageEditorTab.ADJUST,
+                    strokeColor = state.strokeColor,
+                    strokeWidth = state.strokeWidth,
+                    strokes = state.strokes,
+                    currentPoints = state.currentPoints,
+                    onPointsChange = { state.currentPoints = it },
+                    onStrokeCompleted = { state.strokes.add(it) },
+                    overlayText = state.overlayText,
+                    textColor = state.textColor,
+                    textSizeSp = state.textSizeSp,
+                    textPosFrac = state.textPosFrac,
+                    onTextPosChange = { state.textPosFrac = it }
+                )
+            }
+        }
+
+        // LAYER 2: Top Bar (Pinned to Top)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .statusBarsPadding()
         ) {
             EditorTopBar(
                 hasStrokes = state.strokes.isNotEmpty(),
@@ -1204,37 +1373,30 @@ fun ImageEditorDialog(
                 onOverwrite = { handleSave(image.file) },
                 onSaveToFolder = { showCustomFolderBrowser = true }
             )
+        }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .background(Color.Black),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(color = Color.White)
-                } else if (transformedBitmap != null) {
-                    EditorCanvas(
-                        bitmap = transformedBitmap,
-                        colorFilter = liveColorFilter,
-                        activeTab = state.activeTab,
-                        strokeColor = state.strokeColor,
-                        strokeWidth = state.strokeWidth,
-                        strokes = state.strokes,
-                        currentPoints = state.currentPoints,
-                        onPointsChange = { state.currentPoints = it },
-                        onStrokeCompleted = { state.strokes.add(it) },
-                        overlayText = state.overlayText,
-                        textColor = state.textColor,
-                        textSizeSp = state.textSizeSp,
-                        textPosFrac = state.textPosFrac,
-                        onTextPosChange = { state.textPosFrac = it }
-                    )
+        // LAYER 3: Bottom Drawer (Pinned to Bottom, extends UPWARD OVER THE PHOTO)
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+        ) {
+            EditorBottomSection(
+                state = state,
+                isExpanded = isDrawerExpanded,
+                onSelectTab = { tab ->
+                    if (state.activeTab == tab) {
+                        isDrawerExpanded = !isDrawerExpanded
+                    } else {
+                        state.activeTab = tab
+                        isDrawerExpanded = true
+                    }
+                },
+                onApply = {
+                    isDrawerExpanded = false
                 }
-            }
-
-            EditorBottomSection(state = state)
+            )
         }
     }
 
